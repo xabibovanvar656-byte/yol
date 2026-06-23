@@ -20,6 +20,9 @@
 }
 body{font-family:var(--f);background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;max-width:480px;margin:0 auto;position:relative;min-height:100vh;overflow-x:hidden;transition:background .3s}
 .app{padding:16px 17px 110px;min-height:100vh}
+/* Telegram fullscreen: отступ сверху под кнопки закрыть/свернуть */
+[data-tg] .app{padding-top:calc(16px + var(--tg-top,0px))}
+[data-tg-fs] .app{padding-top:calc(76px + var(--tg-top,0px))}
 .hidden{display:none !important}
 
 /* загрузка */
@@ -310,6 +313,20 @@ function tgInit(){
       TG=wa;TG.ready();TG.expand();
       try{if(TG.requestFullscreen)TG.requestFullscreen();if(TG.disableVerticalSwipes)TG.disableVerticalSwipes();}catch(e){}
       try{TG.setHeaderColor&&TG.setHeaderColor('#00b86b');}catch(e){}
+      // fullscreen: ставим атрибут + вычисляем безопасный отступ сверху (под кнопки Telegram)
+      function applyTgInsets(){
+        try{
+          var fs=TG.isFullscreen;
+          if(fs)document.documentElement.setAttribute('data-tg-fs','1');
+          else document.documentElement.removeAttribute('data-tg-fs');
+          var top=0;
+          if(TG.contentSafeAreaInset&&typeof TG.contentSafeAreaInset.top==='number')top=TG.contentSafeAreaInset.top;
+          if(TG.safeAreaInset&&typeof TG.safeAreaInset.top==='number')top+=TG.safeAreaInset.top;
+          document.documentElement.style.setProperty('--tg-top',top+'px');
+        }catch(e){}
+      }
+      applyTgInsets();
+      try{TG.onEvent&&TG.onEvent('fullscreenChanged',applyTgInsets);TG.onEvent&&TG.onEvent('safeAreaChanged',applyTgInsets);TG.onEvent&&TG.onEvent('contentSafeAreaChanged',applyTgInsets);}catch(e){}
       var u=TG.initDataUnsafe&&TG.initDataUnsafe.user;
       if(u)TG_USER={id:u.id,name:[u.first_name,u.last_name].filter(Boolean).join(' ')||u.username||('user'+u.id),username:u.username||''};
       if(TG.initDataUnsafe&&TG.initDataUnsafe.start_param)TG_START=TG.initDataUnsafe.start_param;
@@ -409,6 +426,7 @@ function go(page){
   else if(page==='rating')renderRating(app);
   else if(page==='profile')renderProfile(app);
   else if(page==='errors')renderErrors(app);
+  else if(page==='admin')renderAdmin(app);
   else renderHome(app);
 }
 
@@ -466,7 +484,7 @@ function renderHome(app){
   html+='<div class="grid">'
     +'<div class="g tk" onclick="go(\'tickets\')"><div class="e">📚</div><b>'+t('mode_tickets')+'</b><span>'+t('mode_tickets_sub')+'</span></div>'
     +'<div class="g er" onclick="go(\'errors\')"><div class="e">🎯</div><b>'+t('mode_errors')+'</b><span>'+errCount+' '+t('mode_errors_sub')+'</span></div>'
-    +'<div class="g du" onclick="toast(\'Скоро!\')"><span class="badge">LIVE</span><div class="e">⚔️</div><b>'+t('mode_duel')+'</b><span>'+t('mode_duel_sub')+'</span></div>'
+    +'<div class="g du" onclick="duelStart()"><span class="badge">LIVE</span><div class="e">⚔️</div><b>'+t('mode_duel')+'</b><span>'+t('mode_duel_sub')+'</span></div>'
     +'<div class="g vo" onclick="toast(\'Скоро!\')"><div class="e">🔊</div><b>'+t('mode_audio')+'</b><span>'+t('mode_audio_sub')+'</span></div>'
     +'</div>';
   // рейтинг превью (заглушка пока)
@@ -749,6 +767,8 @@ function renderProfile(app){
     +'<div class="mi"><div class="mic">🌙</div><div class="mt">'+t('dark_theme')+'</div><div class="toggle'+(S.dark?' on':'')+'" onclick="toggleTheme()"></div></div>'
     +'<div class="mi"><div class="mic">🔊</div><div class="mt">'+t('sound')+'</div><div class="toggle'+(S.sound?' on':'')+'" onclick="toggleSound()"></div></div>'
     +'<div class="mi" onclick="setLang(S.lang===\'ru\'?\'uz\':\'ru\')"><div class="mic">🌐</div><div class="mt">'+t('language')+'</div><div class="ma">'+(S.lang==='ru'?'Русский':'Oʻzbek')+' ›</div></div>';
+  if(S.user&&S.user.role==='admin')html+='<div class="mi" onclick="go(\'admin\')"><div class="mic">🛡️</div><div class="mt">Админ-панель</div><div class="ma">›</div></div>';
+  if(S.user&&S.user.role!=='admin')html+='<div class="mi" onclick="adminLogin()"><div class="mic">🔑</div><div class="mt" style="color:var(--ink3)">Вход для админа</div></div>';
   if(S.user)html+='<div class="mi" onclick="logout()"><div class="mic">🚪</div><div class="mt" style="color:var(--red)">'+t('logout')+'</div></div>';
   html+='</div>';
   if(!S.user)html+='<button class="btn-main" style="margin-top:16px" onclick="showAuth()">'+t('login')+'</button>';
@@ -863,7 +883,7 @@ function doRegister(){
     });
   });
 }
-function setUser(u){S.user={email:u.email,name:u.name,lang:u.lang||'ru',coins:u.coins||0,is_premium:!!u.is_premium};if(u.lang)S.lang=u.lang;sv();}
+function setUser(u){S.user={email:u.email,name:u.name,lang:u.lang||'ru',coins:u.coins||0,is_premium:!!u.is_premium,role:u.role||'student'};if(u.lang)S.lang=u.lang;sv();}
 function logout(){S.user=null;S.progress={};sv();go('home');}
 function val(id){var e=document.getElementById(id);return e?e.value.trim():'';}
 
@@ -876,6 +896,283 @@ function tgAutoLogin(){
     // создать новый
     var newU={email:tgEmail,name:TG_USER.name,lang:S.lang,status:'active',role:'student',tg_id:String(TG_USER.id),tg_chat_id:String(TG_USER.id)};
     return sbPost('users',newU).then(function(){setUser(newU);});
+  });
+}
+
+// ===== ДУЭЛИ (онлайн-баттл) =====
+var DUEL=null,DUEL_POLL=null;
+function duelStart(){
+  if(!S.user){toast('Сначала войдите');showAuth();return;}
+  if(!S.questions.length){toast('Вопросы не загружены');return;}
+  var app=document.getElementById('app');
+  app.innerHTML='<div class="h1">⚔️ '+t('mode_duel')+'</div>'
+    +'<div class="qcard" style="text-align:center;padding:40px 20px"><div class="spinner" style="margin:0 auto 18px"></div>'
+    +'<div style="font-size:16px;font-weight:700">Ищем соперника...</div>'
+    +'<div style="font-size:13px;color:var(--ink3);margin-top:6px">Подбираем игрока для баттла</div>'
+    +'<button class="btn-ghost" style="margin-top:20px" onclick="duelCancel()">Отмена</button></div>';
+  // собрать 10 вопросов для дуэли
+  var qs=shuffle(S.questions.slice()).slice(0,10).map(function(q){return q.id;});
+  sbRpc('find_or_create_duel',{p_email:S.user.email,p_name:S.user.name,p_questions:JSON.stringify(qs)}).then(function(res){
+    if(!res||!res.length){toast('Ошибка дуэли');go('home');return;}
+    var d=res[0];
+    DUEL={id:d.duel_id,isCreator:d.is_creator,questions:[],idx:0,answers:[],myScore:0};
+    if(d.is_creator){
+      // ждём соперника
+      duelWaitOpponent();
+    }else{
+      // присоединились — грузим вопросы и начинаем
+      duelLoadAndStart();
+    }
+  });
+}
+function duelWaitOpponent(){
+  if(DUEL_POLL)clearInterval(DUEL_POLL);
+  DUEL_POLL=setInterval(function(){
+    sbGet('duels','id=eq.'+DUEL.id+'&select=status,player2_name,questions_json').then(function(rows){
+      if(rows&&rows.length&&rows[0].status==='active'){
+        clearInterval(DUEL_POLL);
+        toast('Соперник найден: '+(rows[0].player2_name||'игрок'));
+        duelLoadAndStart();
+      }
+    });
+  },2000);
+}
+function duelLoadAndStart(){
+  if(DUEL_POLL)clearInterval(DUEL_POLL);
+  sbGet('duels','id=eq.'+DUEL.id+'&select=questions_json').then(function(rows){
+    if(!rows||!rows.length){go('home');return;}
+    var ids=JSON.parse(rows[0].questions_json||'[]');
+    DUEL.questions=ids.map(function(id){return S.questions.find(function(q){return q.id===id;});}).filter(Boolean);
+    if(!DUEL.questions.length){toast('Вопросы не найдены');go('home');return;}
+    DUEL.idx=0;DUEL.answers=[];DUEL.myScore=0;DUEL.startTime=Date.now();
+    duelRenderQ();
+  });
+}
+function duelRenderQ(){
+  var app=document.getElementById('app');
+  var q=DUEL.questions[DUEL.idx];
+  var qtext=S.lang==='uz'&&q.question_uz?q.question_uz:q.question_ru;
+  var opts=(S.lang==='uz'&&q.options_uz?q.options_uz:q.options_ru).split('|');
+  var html='<div class="qhead"><div class="back" onclick="duelCancel()">←</div><div class="qtitle">⚔️ Дуэль<span>Вопрос '+(DUEL.idx+1)+' из '+DUEL.questions.length+'</span></div><div class="qtimer" id="duelScore">⭐ '+DUEL.myScore+'</div></div>';
+  html+='<div class="dots">';
+  for(var i=0;i<DUEL.questions.length;i++){var cls='';if(i<DUEL.answers.length)cls=DUEL.answers[i]?'ok':'no';else if(i===DUEL.idx)cls='cur';html+='<i class="'+cls+'"></i>';}
+  html+='</div><div class="qcard">';
+  if(q.image_url)html+='<div class="qpic"><img src="'+esc(q.image_url)+'" alt=""></div>';
+  html+='<div class="qtext">'+esc(qtext)+'</div><div class="ans" id="duelAns">';
+  opts.forEach(function(o,i){html+='<button class="a" onclick="duelAnswer('+i+')"><span class="lk">'+String.fromCharCode(65+i)+'</span> '+esc(o)+'</button>';});
+  html+='</div></div>';
+  app.innerHTML=html;
+}
+function duelAnswer(idx){
+  if(DUEL.answered)return;DUEL.answered=true;
+  var q=DUEL.questions[DUEL.idx];
+  var correct=idx===q.correct_index;
+  DUEL.answers.push(correct);
+  if(correct)DUEL.myScore++;
+  playSound(correct?'correct':'wrong');
+  var btns=document.querySelectorAll('#duelAns .a');
+  btns.forEach(function(b,i){if(i===q.correct_index)b.classList.add('ok');else if(i===idx)b.classList.add('no');b.onclick=null;});
+  document.getElementById('duelScore').textContent='⭐ '+DUEL.myScore;
+  setTimeout(function(){
+    DUEL.answered=false;
+    if(DUEL.idx+1>=DUEL.questions.length){duelFinish();return;}
+    DUEL.idx++;duelRenderQ();
+  },900);
+}
+function duelFinish(){
+  // записать свой результат
+  var field=DUEL.isCreator?'p1_score':'p2_score';
+  var ffield=DUEL.isCreator?'p1_finished':'p2_finished';
+  var patch={};patch[field]=DUEL.myScore;patch[ffield]=true;
+  sbPatch('duels','id=eq.'+DUEL.id,patch);
+  if(S.user&&S.dbOK)addScore(DUEL.myScore*3);
+  // ждём соперника и показываем результат
+  var app=document.getElementById('app');
+  app.innerHTML='<div class="result-hero"><div class="result-badge pass">⚔️</div><div class="result-title">Дуэль завершена</div><div class="result-sub">Твой счёт: '+DUEL.myScore+' из '+DUEL.questions.length+'</div></div>'
+    +'<div class="qcard" style="text-align:center;padding:30px"><div class="spinner" style="margin:0 auto 14px"></div><div style="font-size:14px;color:var(--ink2)">Ждём соперника...</div></div>';
+  var tries=0;
+  if(DUEL_POLL)clearInterval(DUEL_POLL);
+  DUEL_POLL=setInterval(function(){
+    tries++;
+    sbGet('duels','id=eq.'+DUEL.id+'&select=*').then(function(rows){
+      if(!rows||!rows.length)return;
+      var d=rows[0];
+      var bothDone=d.p1_finished&&d.p2_finished;
+      if(bothDone||tries>15){
+        clearInterval(DUEL_POLL);
+        duelShowResult(d);
+      }
+    });
+  },2000);
+}
+function duelShowResult(d){
+  var myScore=DUEL.isCreator?d.p1_score:d.p2_score;
+  var oppScore=DUEL.isCreator?d.p2_score:d.p1_score;
+  var oppName=DUEL.isCreator?(d.player2_name||'Соперник'):(d.player1_name||'Соперник');
+  var won=myScore>oppScore,tie=myScore===oppScore;
+  var app=document.getElementById('app');
+  var emoji=won?'🏆':tie?'🤝':'😔';
+  var title=won?'Победа!':tie?'Ничья':'Поражение';
+  var html='<div class="result-hero"><div class="result-badge '+(won?'pass':'fail')+'">'+emoji+'</div><div class="result-title">'+title+'</div></div>';
+  html+='<div class="result-stats"><div class="rs g"><b>'+myScore+'</b><span>ТЫ</span></div><div class="rs"><b>vs</b><span> </span></div><div class="rs r"><b>'+oppScore+'</b><span>'+esc(oppName.toUpperCase())+'</span></div></div>';
+  if(won)html+='<div class="weak" style="background:var(--mint)"><span class="we">🎉</span><div class="winfo"><div class="wn">+'+(myScore*3)+' баллов к рейтингу!</div></div></div>';
+  html+='<button class="btn-main" style="margin-top:18px" onclick="go(\'home\')">На главную</button>';
+  html+='<button class="btn-ghost" style="margin-top:10px" onclick="duelStart()">Ещё раз ⚔️</button>';
+  app.innerHTML=html;
+  DUEL=null;
+}
+function duelCancel(){
+  if(DUEL_POLL)clearInterval(DUEL_POLL);
+  if(DUEL&&DUEL.id&&DUEL.isCreator){
+    // удалить свою ждущую дуэль
+    fetch(SB_URL+'/rest/v1/duels?id=eq.'+DUEL.id+'&status=eq.waiting',{method:'DELETE',headers:SBH}).catch(function(){});
+  }
+  DUEL=null;go('home');
+}
+
+// ===== АДМИНКА =====
+function adminLogin(){
+  var html='<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal">'
+    +'<h2>🔑 Вход для админа</h2><p>Введите пароль администратора</p>'
+    +'<div class="field"><label>Пароль</label><input id="admPw" type="password" placeholder="••••"></div>'
+    +'<div class="ferr" id="admErr"></div>'
+    +'<button class="btn-main" onclick="doAdminLogin()">Войти</button>'
+    +'</div></div>';
+  document.getElementById('modalRoot').innerHTML=html;
+}
+function doAdminLogin(){
+  if(!S.user){showErr('admErr','Сначала войдите в аккаунт');return;}
+  var pw=val('admPw');
+  if(!pw){showErr('admErr','Введите пароль');return;}
+  sbRpc('make_admin',{p_email:S.user.email,p_password:pw}).then(function(res){
+    if(res===true){
+      S.user.role='admin';sv();closeModal();
+      toast('✅ Вы вошли как админ');go('admin');
+    }else{
+      showErr('admErr','❌ Неверный пароль');
+    }
+  });
+}
+
+var ADMIN_TAB='add';
+function renderAdmin(app){
+  if(!S.user||S.user.role!=='admin'){app.innerHTML='<div class="h1">Доступ закрыт</div><button class="btn-ghost" onclick="go(\'profile\')">Назад</button>';return;}
+  var html='<div class="qhead"><div class="back" onclick="go(\'profile\')">←</div><div class="qtitle">🛡️ Админка<span>Управление</span></div></div>';
+  html+='<div class="tabs"><button class="'+(ADMIN_TAB==='add'?'on':'')+'" onclick="setAdminTab(\'add\')">Добавить</button><button class="'+(ADMIN_TAB==='list'?'on':'')+'" onclick="setAdminTab(\'list\')">Вопросы</button><button class="'+(ADMIN_TAB==='stats'?'on':'')+'" onclick="setAdminTab(\'stats\')">Сложные</button></div>';
+  html+='<div id="adminBody"></div>';
+  app.innerHTML=html;
+  renderAdminBody();
+}
+function setAdminTab(tab){ADMIN_TAB=tab;renderAdminBody();}
+function renderAdminBody(){
+  var el=document.getElementById('adminBody');
+  if(!el)return;
+  if(ADMIN_TAB==='add')renderAdminAdd(el);
+  else if(ADMIN_TAB==='list')renderAdminList(el);
+  else if(ADMIN_TAB==='stats')renderAdminStats(el);
+}
+
+// --- Добавление вопроса (с картинкой + ИИ-объяснение) ---
+function renderAdminAdd(el){
+  var html='<div class="qcard" style="padding:16px">'
+    +'<div class="field"><label>Билет (1-62)</label><input id="aqTicket" type="number" placeholder="4"></div>'
+    +'<div class="field"><label>Номер вопроса (1-20)</label><input id="aqNum" type="number" placeholder="7"></div>'
+    +'<div class="field"><label>Тема</label><input id="aqTopic" placeholder="Знаки приоритета"></div>'
+    +'<div class="field"><label>Ссылка на картинку (необязательно)</label><input id="aqImg" placeholder="https://..."></div>'
+    +'<div class="field"><label>Вопрос (рус)</label><input id="aqQru" placeholder="Что означает знак?"></div>'
+    +'<div class="field"><label>Вопрос (узб)</label><input id="aqQuz" placeholder="Belgi nimani anglatadi?"></div>'
+    +'<div class="field"><label>Варианты рус (через |)</label><input id="aqOru" placeholder="Вариант А|Вариант Б|Вариант В"></div>'
+    +'<div class="field"><label>Варианты узб (через |)</label><input id="aqOuz" placeholder="A variant|B variant|V variant"></div>'
+    +'<div class="field"><label>Правильный (номер с 1)</label><input id="aqCor" type="number" placeholder="2"></div>'
+    +'<div class="field"><label>Объяснение рус</label><input id="aqEru" placeholder="Почему этот ответ..."></div>'
+    +'<div class="field"><label>Объяснение узб</label><input id="aqEuz" placeholder="Nega bu javob..."></div>'
+    +'<div class="ferr" id="aqErr"></div>'
+    +'<button class="btn-main" onclick="adminSaveQ()">💾 Сохранить вопрос</button>'
+    +'</div>'
+    +'<div class="qcard" style="padding:16px;margin-top:12px">'
+    +'<div style="font-size:14px;font-weight:800;margin-bottom:6px">📥 Массовая загрузка</div>'
+    +'<p style="font-size:12.5px;color:var(--ink2);line-height:1.5;margin-bottom:10px">Каждый вопрос с новой строки. Формат:<br><code style="font-size:11px">билет;номер;тема;картинка;вопрос_рус;вопрос_узб;вар_рус;вар_узб;правильный;объяс_рус;объяс_узб</code></p>'
+    +'<textarea id="aqBulk" style="width:100%;min-height:100px;padding:12px;border:1.5px solid var(--line);border-radius:12px;font-family:monospace;font-size:12px;background:var(--bg);color:var(--ink)" placeholder="4;7;Знаки;;Вопрос?;Savol?;А|Б|В;A|B|V;2;Объяснение;Izoh"></textarea>'
+    +'<button class="btn-ghost" style="margin-top:10px" onclick="adminBulkQ()">Загрузить пакетом</button>'
+    +'</div>';
+  el.innerHTML=html;
+}
+function adminSaveQ(){
+  var rec={
+    ticket:parseInt(val('aqTicket'))||0,
+    num:parseInt(val('aqNum'))||0,
+    topic:val('aqTopic'),
+    image_url:val('aqImg'),
+    question_ru:val('aqQru'),
+    question_uz:val('aqQuz'),
+    options_ru:val('aqOru'),
+    options_uz:val('aqOuz'),
+    correct_index:(parseInt(val('aqCor'))||1)-1,
+    explain_ru:val('aqEru'),
+    explain_uz:val('aqEuz')
+  };
+  if(!rec.ticket||!rec.question_ru||!rec.options_ru){showErr('aqErr','Заполни билет, вопрос и варианты');return;}
+  if(rec.correct_index<0){showErr('aqErr','Правильный ответ — номер с 1');return;}
+  sbPost('questions',rec).then(function(r){
+    if(r){toast('✅ Вопрос добавлен');renderAdminAdd(document.getElementById('adminBody'));loadQuestions();}
+    else showErr('aqErr','Ошибка сохранения');
+  });
+}
+function adminBulkQ(){
+  var raw=val('aqBulk');
+  if(!raw){toast('Вставь вопросы');return;}
+  var lines=raw.split('\n').filter(function(l){return l.trim();});
+  var recs=[];
+  lines.forEach(function(l){
+    var p=l.split(';');
+    if(p.length<9)return;
+    recs.push({
+      ticket:parseInt(p[0])||0,num:parseInt(p[1])||0,topic:(p[2]||'').trim(),
+      image_url:(p[3]||'').trim(),question_ru:(p[4]||'').trim(),question_uz:(p[5]||'').trim(),
+      options_ru:(p[6]||'').trim(),options_uz:(p[7]||'').trim(),
+      correct_index:(parseInt(p[8])||1)-1,explain_ru:(p[9]||'').trim(),explain_uz:(p[10]||'').trim()
+    });
+  });
+  if(!recs.length){toast('Не распознано. Проверь формат');return;}
+  sbPost('questions',recs).then(function(r){
+    if(r){toast('✅ Загружено: '+recs.length);loadQuestions();renderAdminAdd(document.getElementById('adminBody'));}
+    else toast('Ошибка загрузки');
+  });
+}
+
+// --- Список вопросов ---
+function renderAdminList(el){
+  el.innerHTML='<div style="padding:20px;text-align:center;color:var(--ink3)">Загрузка...</div>';
+  sbGet('questions','select=id,ticket,num,question_ru&order=ticket.asc,num.asc&limit=200').then(function(rows){
+    rows=rows||[];
+    var html='<div style="font-size:13px;color:var(--ink2);margin-bottom:12px">Всего вопросов: '+rows.length+(rows.length>=200?'+ (показаны первые 200)':'')+'</div>';
+    if(!rows.length){html+='<p style="color:var(--ink3)">Вопросов пока нет. Добавь через вкладку «Добавить».</p>';}
+    rows.forEach(function(q){
+      html+='<div class="weak" style="align-items:center"><span class="we" style="font-size:13px;font-weight:800;color:var(--green)">Б'+q.ticket+'</span><div class="winfo"><div class="wn" style="font-size:13px">'+esc(q.question_ru)+'</div></div><span onclick="adminDelQ('+q.id+')" style="color:var(--red);cursor:pointer;font-size:18px">🗑</span></div>';
+    });
+    el.innerHTML=html;
+  });
+}
+function adminDelQ(id){
+  if(!confirm('Удалить вопрос?'))return;
+  fetch(SB_URL+'/rest/v1/questions?id=eq.'+id,{method:'DELETE',headers:SBH}).then(function(){toast('Удалён');renderAdminList(document.getElementById('adminBody'));loadQuestions();});
+}
+
+// --- Сложные вопросы ---
+function renderAdminStats(el){
+  el.innerHTML='<div style="padding:20px;text-align:center;color:var(--ink3)">Анализ...</div>';
+  sbRpc('hard_questions',{}).then(function(rows){
+    rows=rows||[];
+    if(!rows.length){el.innerHTML='<p style="color:var(--ink3);padding:10px">Пока мало данных. Статистика появится когда студенты порешают вопросы.</p>';return;}
+    var html='<div style="font-size:13px;color:var(--ink2);margin-bottom:12px">Вопросы которые чаще всего проваливают:</div>';
+    var qmap={};S.questions.forEach(function(q){qmap[q.id]=q;});
+    rows.forEach(function(r){
+      var q=qmap[r.question_id];
+      var txt=q?q.question_ru:('Вопрос #'+r.question_id);
+      var col=r.wrong_pct>=70?'var(--red)':r.wrong_pct>=50?'var(--amber)':'var(--green)';
+      html+='<div class="weak"><span class="we">'+(r.wrong_pct>=70?'🔴':'🟡')+'</span><div class="winfo"><div class="wn" style="font-size:13px">'+esc(txt)+'</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">'+r.wrong+' из '+r.total+' ошиблись</div></div><span class="wpc" style="color:'+col+'">'+r.wrong_pct+'%</span></div>';
+    });
+    el.innerHTML=html;
   });
 }
 
