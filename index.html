@@ -1,65 +1,1377 @@
--- ============================================
--- Yoʻl — Комнаты и дуэль по ID друга
--- Запустить после duels_setup.sql
--- ============================================
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Yoʻl — ПДД</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#eef4f0;--card:#ffffff;--ink:#0f1f18;--ink2:#566b60;--ink3:#9aaaa0;--line:#e6efe9;
+  --green:#00b86b;--green-d:#059862;--mint:#e3f9ee;
+  --amber:#ff9d0a;--amber-s:#fff4e2;--red:#ff4259;--red-s:#ffe9ec;
+  --f:'Manrope',-apple-system,system-ui,sans-serif;
+}
+[data-dark]{
+  --bg:#11160f;--card:#1a211a;--ink:#e8efe9;--ink2:#9db0a4;--ink3:#6b7d72;--line:#26302a;
+  --mint:#16291f;--amber-s:#2a2410;--red-s:#2a1419;
+}
+body{font-family:var(--f);background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;max-width:480px;margin:0 auto;position:relative;min-height:100vh;overflow-x:hidden;transition:background .3s}
+.app{padding:16px 17px 110px;min-height:100vh}
+/* Telegram fullscreen: отступ сверху под кнопки закрыть/свернуть */
+[data-tg] .app{padding-top:calc(16px + var(--tg-top,0px))}
+[data-tg-fs] .app{padding-top:calc(76px + var(--tg-top,0px))}
+.hidden{display:none !important}
 
--- поле кода комнаты и тип дуэли
-alter table duels add column if not exists room_code text default '';
-alter table duels add column if not exists target_email text default '';
-alter table duels add column if not exists duel_type text default 'random';
+/* загрузка */
+#loading{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999;flex-direction:column;gap:16px}
+.spinner{width:44px;height:44px;border:4px solid var(--mint);border-top-color:var(--green);border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 
-create index if not exists idx_duels_room on duels(room_code);
-create index if not exists idx_duels_target on duels(target_email);
+/* шапка */
+.top{display:flex;align-items:center;gap:11px;margin-bottom:18px}
+.logo{width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,#00c878,#059862);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 18px -8px rgba(0,184,107,.5);flex-shrink:0}
+.logo svg{width:22px;height:22px}
+.top .bname{font-size:18px;font-weight:800;letter-spacing:-.5px}
+.lang{margin-left:auto;display:flex;background:var(--card);border-radius:99px;padding:3px;box-shadow:0 4px 14px -8px rgba(15,31,24,.2)}
+.lang button{border:none;background:none;font-family:var(--f);font-size:12px;font-weight:800;padding:5px 12px;border-radius:99px;color:var(--ink3);cursor:pointer;transition:.2s}
+.lang button.on{background:var(--green);color:#fff}
 
--- RPC: создать комнату с кодом
-create or replace function create_room(p_email text, p_name text, p_questions text, p_code text)
-returns bigint
-language plpgsql
-security definer
-as $$
-declare new_id bigint;
-begin
-  insert into duels(player1_email,player1_name,status,questions_json,room_code,duel_type)
-  values(p_email,p_name,'waiting',p_questions,p_code,'room')
-  returning id into new_id;
-  return new_id;
-end;
-$$;
+/* общие компоненты */
+.h1{font-size:22px;font-weight:800;letter-spacing:-.5px;margin-bottom:18px}
+.sec{font-size:13px;font-weight:800;color:var(--ink2);margin:4px 4px 12px;display:flex;align-items:center;letter-spacing:-.2px}
+.sec .more{margin-left:auto;font-size:12px;color:var(--green);font-weight:700;cursor:pointer}
+.btn-main{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:linear-gradient(135deg,#00b86b,#059862);color:#fff;font-size:16px;font-weight:800;padding:16px;border:none;border-radius:17px;cursor:pointer;font-family:var(--f);box-shadow:0 12px 28px -12px rgba(0,184,107,.6);transition:transform .15s}
+.btn-main:active{transform:scale(.98)}
+.btn-ghost{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:var(--card);color:var(--ink);font-size:15px;font-weight:700;padding:14px;border:1.5px solid var(--line);border-radius:15px;cursor:pointer;font-family:var(--f)}
 
--- RPC: войти в комнату по коду
-create or replace function join_room(p_email text, p_name text, p_code text)
-returns bigint
-language plpgsql
-security definer
-as $$
-declare room_id bigint;
-begin
-  select id into room_id from duels
-  where room_code=p_code and status='waiting' and player1_email <> p_email
-  order by created_at desc limit 1;
-  if room_id is null then return 0; end if;
-  update duels set player2_email=p_email, player2_name=p_name, status='active' where id=room_id;
-  return room_id;
-end;
-$$;
+/* HERO готовность */
+.road-card{background:linear-gradient(160deg,#00b86b,#03704c);border-radius:26px;padding:22px 22px 0;color:#fff;position:relative;overflow:hidden;margin-bottom:16px;box-shadow:0 18px 40px -18px rgba(0,184,107,.5)}
+.road-card .glow{position:absolute;top:-50px;right:-40px;width:170px;height:170px;background:rgba(255,255,255,.12);border-radius:50%}
+.road-card .lbl{font-size:12.5px;opacity:.85;font-weight:600;position:relative;letter-spacing:.2px}
+.road-card .pct{font-size:46px;font-weight:800;letter-spacing:-2px;line-height:1.05;position:relative}
+.road-card .pct small{font-size:19px;font-weight:700;opacity:.8}
+.road-stat{display:flex;gap:24px;margin-top:14px;position:relative}
+.road-stat .s b{font-size:18px;font-weight:800}
+.road-stat .s span{display:block;font-size:11px;opacity:.82;margin-top:1px}
+.road{height:46px;margin:16px -22px 0;background:rgba(0,0,0,.13);position:relative;display:flex;align-items:center;overflow:hidden}
+.road .lane{position:absolute;top:50%;left:0;right:0;height:3px;transform:translateY(-50%);background:repeating-linear-gradient(90deg,#fff 0 16px,transparent 16px 32px);opacity:.45}
+.road .car{position:absolute;top:50%;transform:translateY(-50%);font-size:24px;filter:drop-shadow(0 4px 6px rgba(0,0,0,.3));animation:bob 1.5s ease-in-out infinite;transition:left 1s cubic-bezier(.4,0,.2,1)}
+@keyframes bob{0%,100%{transform:translateY(-50%)}50%{transform:translateY(-58%)}}
+.road .flag{position:absolute;top:50%;right:16px;transform:translateY(-50%);font-size:21px}
 
--- RPC: вызвать друга по email
-create or replace function challenge_friend(p_email text, p_name text, p_questions text, p_target text)
-returns bigint
-language plpgsql
-security definer
-as $$
-declare new_id bigint;
-begin
-  insert into duels(player1_email,player1_name,status,questions_json,target_email,duel_type)
-  values(p_email,p_name,'waiting',p_questions,p_target,'friend')
-  returning id into new_id;
-  return new_id;
-end;
-$$;
+/* продолжить */
+.continue{display:flex;align-items:center;gap:13px;background:var(--card);border-radius:18px;padding:14px 16px;margin-bottom:12px;cursor:pointer;box-shadow:0 8px 22px -16px rgba(15,31,24,.2);position:relative;overflow:hidden}
+.continue:active{transform:scale(.985)}
+.continue .ci{width:38px;height:38px;border-radius:12px;background:var(--mint);color:var(--green);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.continue .ctxt{flex:1}
+.continue .ctxt b{font-size:14px;font-weight:800;display:block}
+.continue .ctxt span{font-size:12px;color:var(--ink3);font-weight:600}
+.continue .cbar{position:absolute;bottom:0;left:0;right:0;height:3px;background:var(--line)}
+.continue .cbar i{display:block;height:100%;background:var(--green)}
 
-grant execute on function create_room(text,text,text,text) to anon;
-grant execute on function join_room(text,text,text) to anon;
-grant execute on function challenge_friend(text,text,text,text) to anon;
+/* экзамен-кнопка */
+.exam-btn{display:flex;align-items:center;gap:14px;background:var(--card);border-radius:20px;padding:17px;margin-bottom:12px;cursor:pointer;box-shadow:0 10px 28px -18px rgba(15,31,24,.26)}
+.exam-btn:active{transform:scale(.985)}
+.exam-btn .ic{width:50px;height:50px;border-radius:15px;background:linear-gradient(135deg,#00b86b,#059862);display:flex;align-items:center;justify-content:center;font-size:25px;flex-shrink:0;box-shadow:0 8px 18px -8px rgba(0,184,107,.5)}
+.exam-btn .txt{flex:1}
+.exam-btn h3{font-size:16px;font-weight:800;letter-spacing:-.3px}
+.exam-btn p{font-size:12.5px;color:var(--ink3);margin-top:2px;font-weight:600}
+.exam-btn .go{color:var(--ink3);font-size:20px;flex-shrink:0}
 
-select 'Комнаты и дуэль с другом настроены!' as result;
+/* режимы 2x2 */
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px}
+.g{background:var(--card);border-radius:19px;padding:17px;cursor:pointer;box-shadow:0 8px 22px -16px rgba(15,31,24,.2);position:relative}
+.g:active{transform:scale(.97)}
+.g .e{width:42px;height:42px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:22px;margin-bottom:10px}
+.g.tk .e{background:var(--mint)}.g.er .e{background:var(--amber-s)}.g.du .e{background:var(--red-s)}.g.vo .e{background:#ece8ff}
+[data-dark] .g.vo .e{background:#241f33}
+.g b{font-size:14.5px;font-weight:800;letter-spacing:-.2px;display:block}
+.g span{font-size:12px;color:var(--ink3);font-weight:600;margin-top:1px;display:block}
+.g .badge{position:absolute;top:14px;right:14px;font-size:9px;font-weight:800;background:var(--red);color:#fff;padding:3px 7px;border-radius:99px;letter-spacing:.4px}
+
+/* рейтинг превью */
+.rank-prev{background:var(--card);border-radius:19px;padding:6px;box-shadow:0 8px 22px -16px rgba(15,31,24,.2);margin-bottom:8px}
+.rank-row{display:flex;align-items:center;gap:12px;padding:11px 13px;border-radius:14px}
+.rank-row+.rank-row{border-top:1px solid var(--line)}
+.rk{width:24px;text-align:center;font-size:14px;font-weight:800;color:var(--ink3)}
+.rk.g1{color:#f5b800}
+.rav{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:14px}
+.rnm{flex:1;font-size:13.5px;font-weight:700}
+.rsc{font-size:14px;font-weight:800;color:var(--green);font-variant-numeric:tabular-nums}
+
+/* вопрос дня */
+.qday{background:linear-gradient(135deg,var(--card),var(--mint));border:1.5px solid var(--mint);border-radius:19px;padding:16px;margin-bottom:18px;box-shadow:0 8px 22px -16px rgba(0,184,107,.25)}
+.qday .qd-top{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.qday .qd-ic{width:30px;height:30px;border-radius:9px;background:var(--green);display:flex;align-items:center;justify-content:center;font-size:15px}
+.qday .qd-top b{font-size:13px;font-weight:800}
+.qday .qd-top span{margin-left:auto;font-size:11px;color:var(--ink3);font-weight:700}
+.qday .qd-q{font-size:14.5px;font-weight:700;line-height:1.4;margin-bottom:12px;letter-spacing:-.2px}
+.qday .qd-opts{display:flex;flex-direction:column;gap:7px}
+.qday .qd-o{padding:11px 13px;border-radius:12px;border:1.5px solid var(--line);font-size:13.5px;font-weight:600;cursor:pointer;transition:.15s;background:var(--card)}
+.qday .qd-o:active{border-color:var(--green)}
+.qday .qd-o.ok{border-color:var(--green);background:var(--mint)}
+.qday .qd-o.no{border-color:var(--red);background:var(--red-s)}
+
+/* === ЭКРАН ВОПРОСА === */
+.qhead{display:flex;align-items:center;gap:11px;margin-bottom:8px}
+.back{width:38px;height:38px;border-radius:12px;background:var(--card);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--ink2);box-shadow:0 4px 14px -8px rgba(15,31,24,.2);cursor:pointer;flex-shrink:0}
+.qtitle{font-size:15px;font-weight:800}
+.qtitle span{display:block;font-size:11.5px;color:var(--ink3);font-weight:600}
+.qtimer{margin-left:auto;font-size:14px;font-weight:800;color:var(--green);background:var(--mint);padding:7px 13px;border-radius:99px;font-variant-numeric:tabular-nums}
+.dots{display:flex;gap:4px;margin-bottom:16px;flex-wrap:wrap}
+.dots i{flex:1;min-width:8px;height:5px;border-radius:99px;background:var(--line)}
+.dots i.ok{background:var(--green)}.dots i.no{background:var(--red)}.dots i.cur{background:var(--ink3)}
+.qcard{background:var(--card);border-radius:24px;padding:18px;box-shadow:0 14px 40px -22px rgba(15,31,24,.25)}
+.qpic{width:100%;border-radius:17px;background:linear-gradient(135deg,#d4f5e4,#eefbf4);display:flex;align-items:center;justify-content:center;margin-bottom:15px;position:relative;overflow:hidden;min-height:120px}
+.qpic img{width:100%;height:auto;display:block;border-radius:17px}
+.signpost{width:90px;height:90px;border-radius:50%;background:#fff;border:8px solid var(--red);display:flex;align-items:center;justify-content:center;box-shadow:0 10px 26px -8px rgba(255,66,89,.4);margin:30px 0}
+.signpost b{font-size:29px;font-weight:800;color:#0f1f18}
+.qtext{font-size:16.5px;font-weight:700;line-height:1.4;letter-spacing:-.3px;margin-bottom:16px}
+.ans{display:flex;flex-direction:column;gap:9px}
+.a{display:flex;align-items:center;gap:12px;padding:14px 15px;border-radius:15px;border:2px solid var(--line);font-size:14.5px;font-weight:600;cursor:pointer;transition:.18s;background:var(--card);text-align:left}
+.a .lk{width:25px;height:25px;border-radius:8px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:var(--ink2);flex-shrink:0}
+.a.ok{border-color:var(--green);background:var(--mint)}
+.a.ok .lk{background:var(--green);color:#fff}
+.a.no{border-color:var(--red);background:var(--red-s)}
+.a.no .lk{background:var(--red);color:#fff}
+.a.dim{opacity:.5}
+.explain{margin-top:14px;background:var(--mint);border-radius:15px;padding:14px;font-size:13px;line-height:1.5;color:var(--ink2);display:flex;gap:10px}
+.explain .ai{flex-shrink:0;width:26px;height:26px;border-radius:8px;background:var(--green);display:flex;align-items:center;justify-content:center;font-size:14px}
+.explain b{color:var(--ink);font-weight:700}
+
+/* === РЕЗУЛЬТАТ === */
+.result-hero{text-align:center;padding:20px 0 6px}
+.result-badge{width:96px;height:96px;border-radius:50%;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;font-size:46px}
+.result-badge.pass{background:var(--mint)}.result-badge.fail{background:var(--red-s)}
+.result-title{font-size:24px;font-weight:800;letter-spacing:-.5px}
+.result-sub{font-size:14px;color:var(--ink2);margin-top:4px;font-weight:600}
+.result-stats{display:flex;gap:11px;margin:20px 0}
+.rs{flex:1;background:var(--card);border-radius:18px;padding:16px;text-align:center;box-shadow:0 8px 22px -16px rgba(15,31,24,.2)}
+.rs b{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;display:block}
+.rs.g b{color:var(--green)}.rs.r b{color:var(--red)}
+.rs span{font-size:11px;color:var(--ink3);font-weight:700;margin-top:2px;display:block}
+
+/* === БИЛЕТЫ === */
+.tickets{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.tk-cell{aspect-ratio:1;border-radius:16px;background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 6px 18px -14px rgba(15,31,24,.2);position:relative;transition:transform .14s}
+.tk-cell:active{transform:scale(.94)}
+.tk-cell b{font-size:18px;font-weight:800}
+.tk-cell span{font-size:9.5px;color:var(--ink3);font-weight:600;margin-top:1px}
+.tk-cell.done{background:var(--mint)}
+.tk-cell.done b{color:var(--green)}
+.tk-cell.done::after{content:'✓';position:absolute;top:5px;right:7px;font-size:10px;color:var(--green);font-weight:800}
+
+/* === СТАТИСТИКА === */
+.ring-card{background:var(--card);border-radius:24px;padding:22px;box-shadow:0 12px 34px -20px rgba(15,31,24,.22);margin-bottom:14px;display:flex;align-items:center;gap:20px}
+.ring{position:relative;width:110px;height:110px;flex-shrink:0}
+.ring svg{transform:rotate(-90deg)}
+.ring .center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.ring .center b{font-size:27px;font-weight:800;letter-spacing:-1px}
+.ring .center span{font-size:10px;color:var(--ink3);font-weight:700}
+.ring-info b{font-size:17px;font-weight:800;display:block;margin-bottom:3px}
+.ring-info p{font-size:13px;color:var(--ink2);line-height:1.5;font-weight:500}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-bottom:18px}
+.sc{background:var(--card);border-radius:17px;padding:16px;box-shadow:0 8px 22px -16px rgba(15,31,24,.18)}
+.sc .ic{font-size:20px;margin-bottom:8px;display:block}
+.sc b{font-size:23px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+.sc span{font-size:12px;color:var(--ink3);font-weight:600;display:block;margin-top:1px}
+.weak{background:var(--card);border-radius:15px;padding:13px 15px;margin-bottom:9px;display:flex;align-items:center;gap:13px;box-shadow:0 6px 18px -14px rgba(15,31,24,.16)}
+.weak .we{font-size:20px}.weak .winfo{flex:1}
+.weak .wn{font-size:13.5px;font-weight:700}
+.weak .wbar{height:6px;background:var(--bg);border-radius:99px;margin-top:6px;overflow:hidden}
+.weak .wbar i{display:block;height:100%;border-radius:99px}
+.weak .wpc{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums}
+
+/* === РЕЙТИНГ === */
+.tabs{display:flex;background:var(--card);border-radius:14px;padding:4px;margin-bottom:16px;box-shadow:0 6px 18px -14px rgba(15,31,24,.16)}
+.tabs button{flex:1;border:none;background:none;font-family:var(--f);font-size:13px;font-weight:800;padding:9px;border-radius:11px;color:var(--ink3);cursor:pointer}
+.tabs button.on{background:var(--green);color:#fff}
+.podium{display:flex;align-items:flex-end;justify-content:center;gap:10px;margin-bottom:18px}
+.pod{text-align:center}
+.pod .pav{border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;margin:0 auto 7px;position:relative}
+.pod.p1 .pav{width:64px;height:64px;font-size:24px;background:linear-gradient(135deg,#ffd60a,#ff9f0a)}
+.pod.p2 .pav{width:54px;height:54px;font-size:20px;background:linear-gradient(135deg,#00b86b,#059862)}
+.pod.p3 .pav{width:54px;height:54px;font-size:20px;background:linear-gradient(135deg,#7c6cff,#5a4fd0)}
+.pod .crown{position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:20px}
+.pod .pn{font-size:13px;font-weight:800}
+.pod .ps{font-size:12px;color:var(--green);font-weight:800}
+.pod .base{margin-top:8px;border-radius:12px 12px 0 0;background:var(--card);display:flex;align-items:flex-start;justify-content:center;padding-top:8px;font-size:16px;font-weight:800;color:var(--ink3);box-shadow:0 -4px 14px -10px rgba(15,31,24,.2)}
+.pod.p1 .base{height:52px}.pod.p2 .base{height:38px}.pod.p3 .base{height:30px}
+.lb{background:var(--card);border-radius:18px;padding:6px;box-shadow:0 8px 22px -16px rgba(15,31,24,.18)}
+.lbr{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px}
+.lbr+.lbr{border-top:1px solid var(--line)}
+.lbr.me{background:var(--mint)}
+.lbr .n{width:24px;text-align:center;font-size:14px;font-weight:800;color:var(--ink3)}
+.lbr .av{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:14px}
+.lbr .nm{flex:1;font-size:14px;font-weight:700}
+.lbr .sc2{font-size:14px;font-weight:800;color:var(--green);font-variant-numeric:tabular-nums}
+
+/* === ПРОФИЛЬ === */
+.prof-head{text-align:center;padding:8px 0 18px}
+.prof-av{width:90px;height:90px;border-radius:50%;margin:0 auto 12px;background:linear-gradient(135deg,#00c878,#059862);display:flex;align-items:center;justify-content:center;font-size:38px;font-weight:800;color:#fff;box-shadow:0 12px 28px -10px rgba(0,184,107,.5)}
+.prof-name{font-size:21px;font-weight:800;letter-spacing:-.4px}
+.prof-meta{font-size:13px;color:var(--ink3);font-weight:600;margin-top:3px}
+.premium{background:linear-gradient(135deg,#1a1d26,#0d0f15);border-radius:20px;padding:18px;color:#fff;margin-bottom:16px;position:relative;overflow:hidden}
+.premium .pc-glow{position:absolute;top:-30px;right:-20px;width:120px;height:120px;background:rgba(255,196,0,.18);border-radius:50%}
+.premium h3{font-size:16px;font-weight:800;display:flex;align-items:center;gap:7px;position:relative}
+.premium p{font-size:12.5px;opacity:.8;margin-top:4px;position:relative;line-height:1.5}
+.premium .pbtn{margin-top:13px;background:linear-gradient(135deg,#ffc400,#ff9d0a);color:#1a1d26;border:none;font-family:var(--f);font-weight:800;font-size:13.5px;padding:11px 18px;border-radius:13px;cursor:pointer;position:relative}
+.premium.active-prem{background:linear-gradient(135deg,#00b86b,#03704c)}
+.menu{background:var(--card);border-radius:18px;overflow:hidden;box-shadow:0 8px 22px -16px rgba(15,31,24,.18)}
+.mi{display:flex;align-items:center;gap:13px;padding:15px 16px;cursor:pointer}
+.mi+.mi{border-top:1px solid var(--line)}
+.mi .mic{width:32px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;background:var(--mint)}
+.mi .mt{flex:1;font-size:14.5px;font-weight:700}
+.mi .ma{color:var(--ink3);font-size:14px;font-weight:600}
+.toggle{width:44px;height:26px;border-radius:99px;background:var(--line);position:relative;transition:background .2s;flex-shrink:0}
+.toggle.on{background:var(--green)}
+.toggle::after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .2s}
+.toggle.on::after{transform:translateX(18px)}
+
+/* нижняя навигация */
+.nav{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);width:calc(100% - 28px);max-width:452px;background:rgba(255,255,255,.84);backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);border:1px solid rgba(255,255,255,.7);box-shadow:0 14px 40px -10px rgba(15,31,24,.25);border-radius:26px;display:flex;justify-content:space-around;padding:11px 6px;z-index:50}
+[data-dark] .nav{background:rgba(26,33,26,.84);border-color:rgba(255,255,255,.08)}
+.nav a{display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--ink3);font-size:10px;font-weight:700;text-decoration:none;flex:1;padding:3px 0;cursor:pointer}
+.nav a svg{width:24px;height:24px}
+.nav a.on{color:var(--green)}
+
+/* модалка */
+.modal-bg{position:fixed;inset:0;background:rgba(15,31,24,.5);backdrop-filter:blur(4px);z-index:1000;display:flex;align-items:flex-end;justify-content:center;padding:0}
+.modal{background:var(--card);border-radius:26px 26px 0 0;padding:24px 20px 30px;width:100%;max-width:480px;animation:slideup .3s cubic-bezier(.3,0,.2,1)}
+@keyframes slideup{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.modal h2{font-size:19px;font-weight:800;margin-bottom:8px}
+.modal p{font-size:14px;color:var(--ink2);line-height:1.5;margin-bottom:18px}
+.field{margin-bottom:13px}
+.field label{font-size:12.5px;font-weight:700;color:var(--ink2);display:block;margin-bottom:6px}
+.field input,.field select{width:100%;padding:13px 15px;border:1.5px solid var(--line);border-radius:13px;font-family:var(--f);font-size:14.5px;font-weight:600;background:var(--bg);color:var(--ink)}
+.field input:focus{outline:none;border-color:var(--green)}
+.ferr{color:var(--red);font-size:13px;font-weight:600;margin:8px 0;padding:10px 12px;background:var(--red-s);border-radius:11px;display:none}
+
+/* toast */
+#toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--card);padding:12px 20px;border-radius:14px;font-size:13.5px;font-weight:700;z-index:2000;opacity:0;transition:opacity .3s;pointer-events:none;max-width:90%;text-align:center}
+#toast.show{opacity:1}
+
+/* конфетти-точка */
+.confetti{position:fixed;width:10px;height:10px;z-index:3000;pointer-events:none}
+</style>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div></div>
+
+<div class="app" id="app">
+  <!-- контент рендерится JS -->
+</div>
+
+<!-- навигация -->
+<nav class="nav" id="bottomNav">
+  <a data-page="home" class="on" onclick="go('home')"><svg viewBox="0 0 24 24" fill="none"><path d="M3 10.5L12 3l9 7.5M5 9.5V20a1 1 0 001 1h12a1 1 0 001-1V9.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-t="nav_home">Главная</span></a>
+  <a data-page="exam" onclick="go('exam')"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" stroke-width="1.9"/><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-t="nav_exam">Экзамен</span></a>
+  <a data-page="stats" onclick="go('stats')"><svg viewBox="0 0 24 24" fill="none"><path d="M3 13h4l2 6 4-14 2 8h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-t="nav_stats">Статистика</span></a>
+  <a data-page="rating" onclick="go('rating')"><svg viewBox="0 0 24 24" fill="none"><path d="M8 21h8m-4-4v4M5 4h14v5a7 7 0 01-14 0V4z" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-t="nav_rating">Рейтинг</span></a>
+  <a data-page="profile" onclick="go('profile')"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.9"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg><span data-t="nav_profile">Профиль</span></a>
+</nav>
+
+<div id="toast"></div>
+<div id="modalRoot"></div>
+
+<script>
+// ====== ЯДРО ПРИЛОЖЕНИЯ Yoʻl ======
+
+// --- Supabase (ЗАПОЛНИТЬ своими данными нового проекта) ---
+var SB_URL='https://apvxheqkqcphpwgcijjn.supabase.co';
+var SB_KEY='sb_publishable_lMu_MKaHfjYAaoWIFEPuAQ_rYaK3TT5';
+var SBH={apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=representation'};
+
+// --- Состояние ---
+var S={
+  user:null,        // {email,name,lang,coins,is_premium,...}
+  lang:'ru',        // язык интерфейса
+  dark:false,       // тёмная тема
+  sound:true,       // звук
+  page:'home',      // текущая страница
+  questions:[],     // загруженные вопросы
+  progress:{},      // {question_id: {correct:bool}}
+  exams:[],         // история экзаменов
+  dbOK:false
+};
+var KEY='yol1';
+function sv(){try{localStorage.setItem(KEY,JSON.stringify({lang:S.lang,dark:S.dark,sound:S.sound,user:S.user}));}catch(e){}}
+function load(){try{var d=JSON.parse(localStorage.getItem(KEY));if(d){S.lang=d.lang||'ru';S.dark=!!d.dark;S.sound=d.sound!==false;S.user=d.user||null;}}catch(e){}}
+
+// --- Telegram ---
+var TG=null,TG_USER=null,TG_START='';
+function tgInit(){
+  try{
+    if(window.Telegram&&window.Telegram.WebApp){
+      var wa=window.Telegram.WebApp;
+      var real=(wa.initData&&wa.initData.length>0)||(wa.platform&&wa.platform!=='unknown');
+      if(!real)return;
+      TG=wa;TG.ready();TG.expand();
+      try{if(TG.requestFullscreen)TG.requestFullscreen();if(TG.disableVerticalSwipes)TG.disableVerticalSwipes();}catch(e){}
+      try{TG.setHeaderColor&&TG.setHeaderColor('#00b86b');}catch(e){}
+      // fullscreen: ставим атрибут + вычисляем безопасный отступ сверху (под кнопки Telegram)
+      function applyTgInsets(){
+        try{
+          var fs=TG.isFullscreen;
+          if(fs)document.documentElement.setAttribute('data-tg-fs','1');
+          else document.documentElement.removeAttribute('data-tg-fs');
+          var top=0;
+          if(TG.contentSafeAreaInset&&typeof TG.contentSafeAreaInset.top==='number')top=TG.contentSafeAreaInset.top;
+          if(TG.safeAreaInset&&typeof TG.safeAreaInset.top==='number')top+=TG.safeAreaInset.top;
+          document.documentElement.style.setProperty('--tg-top',top+'px');
+        }catch(e){}
+      }
+      applyTgInsets();
+      try{TG.onEvent&&TG.onEvent('fullscreenChanged',applyTgInsets);TG.onEvent&&TG.onEvent('safeAreaChanged',applyTgInsets);TG.onEvent&&TG.onEvent('contentSafeAreaChanged',applyTgInsets);}catch(e){}
+      var u=TG.initDataUnsafe&&TG.initDataUnsafe.user;
+      if(u)TG_USER={id:u.id,name:[u.first_name,u.last_name].filter(Boolean).join(' ')||u.username||('user'+u.id),username:u.username||''};
+      if(TG.initDataUnsafe&&TG.initDataUnsafe.start_param)TG_START=TG.initDataUnsafe.start_param;
+      document.documentElement.setAttribute('data-tg','1');
+    }
+  }catch(e){}
+}
+function isTG(){return !!TG;}
+
+// --- Supabase helpers ---
+function sbGet(t,q){return fetch(SB_URL+'/rest/v1/'+t+'?'+(q||''),{headers:SBH}).then(function(r){return r.ok?r.json():[];});}
+function sbPost(t,b){return fetch(SB_URL+'/rest/v1/'+t,{method:'POST',headers:SBH,body:JSON.stringify(b)}).then(function(r){if(r.ok)return r.json();return r.text().then(function(txt){console.error('sbPost '+t+' error '+r.status+':',txt);window._lastSbErr=r.status+': '+txt;return null;});});}
+function sbPatch(t,q,b){return fetch(SB_URL+'/rest/v1/'+t+'?'+q,{method:'PATCH',headers:SBH,body:JSON.stringify(b)}).then(function(r){return r.ok;});}
+function sbRpc(fn,p){return fetch(SB_URL+'/rest/v1/rpc/'+fn,{method:'POST',headers:SBH,body:JSON.stringify(p||{})}).then(function(r){return r.ok?r.json():null;});}
+
+// --- Языки (RU/UZ) ---
+var I18N={
+  ru:{
+    nav_home:'Главная',nav_exam:'Экзамен',nav_stats:'Статистика',nav_rating:'Рейтинг',nav_profile:'Профиль',
+    readiness:'Готовность к экзамену',solved:'решено',accuracy:'точность',tickets:'билета',
+    continue:'Продолжить',ticket:'Билет',question:'Вопрос',of:'из',
+    exam:'Экзамен',exam_sub:'Билет · 20 вопросов',mode_tickets:'Билеты',mode_tickets_sub:'62 билета',
+    mode_errors:'Мои ошибки',mode_errors_sub:'вопросов',mode_duel:'Дуэль',mode_duel_sub:'Соревнование',
+    mode_audio:'Аудио',mode_audio_sub:'Слушать ПДД',rating_week:'Рейтинг недели',all:'весь',
+    qday:'Вопрос дня',qday_sub:'Сегодняшний вопрос',next:'Следующий вопрос',
+    exam_passed:'Экзамен сдан!',exam_failed:'Экзамен не сдан',correct:'ВЕРНО',errors:'ОШИБКИ',time:'ВРЕМЯ',
+    review_errors:'Разбор ошибок',retry:'Повторить',my_stats:'Моя статистика',
+    weak_topics:'Слабые темы — подтяни',almost_ready:'Почти готов',
+    week:'Неделя',month:'Месяц',alltime:'Всё время',you:'Вы',
+    premium_title:'Yoʻl Premium',premium_desc:'Все 62 билета, режим экзамена без лимитов, ИИ-разбор и аудио. Без рекламы.',
+    premium_buy:'Оформить',premium_active:'Premium активен',
+    dark_theme:'Тёмная тема',sound:'Звук',language:'Язык',notifications:'Уведомления',logout:'Выйти',
+    login:'Вход',register:'Регистрация',name:'Имя',email:'Email',password:'Пароль',
+    enter:'Войти',create_acc:'Создать аккаунт',whats_sign:'Что означает этот знак?',
+    why:'Почему',start_exam:'Начать экзамен',choose_ticket:'Выбери билет',
+    no_errors:'Нет ошибок — отлично!',premium_needed:'Нужен Premium',
+    free_limit:'Лимит бесплатных вопросов на сегодня исчерпан. Оформи Premium для безлимита.',
+  },
+  uz:{
+    nav_home:'Asosiy',nav_exam:'Imtihon',nav_stats:'Statistika',nav_rating:'Reyting',nav_profile:'Profil',
+    readiness:'Imtihonga tayyorlik',solved:'yechilgan',accuracy:'aniqlik',tickets:'bilet',
+    continue:'Davom etish',ticket:'Bilet',question:'Savol',of:'dan',
+    exam:'Imtihon',exam_sub:'Bilet · 20 savol',mode_tickets:'Biletlar',mode_tickets_sub:'62 bilet',
+    mode_errors:'Xatolarim',mode_errors_sub:'savol',mode_duel:'Bellashuv',mode_duel_sub:'Musobaqa',
+    mode_audio:'Audio',mode_audio_sub:'Tinglash',rating_week:'Hafta reytingi',all:'hammasi',
+    qday:'Kun savoli',qday_sub:'Bugungi savol',next:'Keyingi savol',
+    exam_passed:'Imtihon topshirildi!',exam_failed:'Imtihon topshirilmadi',correct:'TOʻGʻRI',errors:'XATO',time:'VAQT',
+    review_errors:'Xatolar tahlili',retry:'Qayta',my_stats:'Mening statistikam',
+    weak_topics:'Zaif mavzular',almost_ready:'Deyarli tayyor',
+    week:'Hafta',month:'Oy',alltime:'Hammasi',you:'Siz',
+    premium_title:'Yoʻl Premium',premium_desc:'Barcha 62 bilet, cheksiz imtihon, AI tahlil va audio. Reklamasiz.',
+    premium_buy:'Sotib olish',premium_active:'Premium faol',
+    dark_theme:'Tungi rejim',sound:'Ovoz',language:'Til',notifications:'Bildirishnomalar',logout:'Chiqish',
+    login:'Kirish',register:'Roʻyxatdan oʻtish',name:'Ism',email:'Email',password:'Parol',
+    enter:'Kirish',create_acc:'Hisob yaratish',whats_sign:'Bu belgi nimani anglatadi?',
+    why:'Nega',start_exam:'Imtihonni boshlash',choose_ticket:'Biletni tanlang',
+    no_errors:'Xatosiz — ajoyib!',premium_needed:'Premium kerak',
+    free_limit:'Bugungi bepul savollar limiti tugadi. Cheksiz uchun Premium oling.',
+  }
+};
+function t(key){return (I18N[S.lang]&&I18N[S.lang][key])||(I18N.ru[key])||key;}
+
+// --- Тема ---
+function applyTheme(){
+  if(S.dark)document.documentElement.setAttribute('data-dark','');
+  else document.documentElement.removeAttribute('data-dark');
+}
+function toggleTheme(){S.dark=!S.dark;applyTheme();sv();go(S.page);}
+
+// --- Язык ---
+function setLang(l){S.lang=l;sv();if(S.user&&S.dbOK){sbPatch('users','email=eq.'+encodeURIComponent(S.user.email),{lang:l});}go(S.page);}
+
+// --- Звук ---
+function playSound(type){
+  if(!S.sound)return;
+  try{
+    var ctx=window._actx||(window._actx=new(window.AudioContext||window.webkitAudioContext)());
+    var o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);
+    if(type==='correct'){o.type='sine';g.gain.setValueAtTime(.0001,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.15,ctx.currentTime+.02);g.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+.25);o.frequency.setValueAtTime(660,ctx.currentTime);o.frequency.setValueAtTime(880,ctx.currentTime+.08);o.start();o.stop(ctx.currentTime+.26);}
+    else{o.type='sine';g.gain.setValueAtTime(.0001,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.12,ctx.currentTime+.02);g.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+.3);o.frequency.setValueAtTime(220,ctx.currentTime);o.frequency.setValueAtTime(160,ctx.currentTime+.12);o.start();o.stop(ctx.currentTime+.31);}
+  }catch(e){}
+}
+
+// --- Toast ---
+function toast(msg){var el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(function(){el.classList.remove('show');},2500);}
+
+// --- Навигация ---
+function go(page){
+  S.page=page;
+  document.querySelectorAll('.nav a').forEach(function(a){a.classList.toggle('on',a.getAttribute('data-page')===page);});
+  var app=document.getElementById('app');
+  app.scrollTop=0;window.scrollTo(0,0);
+  if(page==='home')renderHome(app);
+  else if(page==='exam')renderExamStart(app);
+  else if(page==='tickets')renderTickets(app);
+  else if(page==='stats')renderStats(app);
+  else if(page==='rating')renderRating(app);
+  else if(page==='profile')renderProfile(app);
+  else if(page==='errors')renderErrors(app);
+  else if(page==='admin')renderAdmin(app);
+  else renderHome(app);
+}
+
+// --- Утилиты ---
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function initial(name){return (name||'?').trim().charAt(0).toUpperCase();}
+function avColor(name){var c=['#00b86b,#059862','#ff7a3d,#e8500f','#06b6c4,#0894a0','#7c6cff,#5a4fd0','#ffd60a,#ff9f0a'];var i=(name||'').length%c.length;return 'linear-gradient(135deg,'+c[i].split(',')[0]+','+c[i].split(',')[1]+')';}
+
+// Запуск
+function boot(){
+  load();
+  applyTheme();
+  tgInit();
+  document.getElementById('loading').classList.add('hidden');
+  go('home');
+}
+
+
+// ====== ЭКРАНЫ (рендер) ======
+
+// Вычислить статистику пользователя
+function calcStats(){
+  var total=S.questions.length||1240;
+  var solved=Object.keys(S.progress).length;
+  var correct=0;Object.values(S.progress).forEach(function(p){if(p.correct)correct++;});
+  var acc=solved?Math.round(correct/solved*100):0;
+  // готовность = % решённых с учётом точности
+  var readiness=Math.round((solved/total)*100*(acc/100)+(acc*0.0));
+  readiness=Math.min(100,Math.round((solved/total*0.6+acc/100*0.4)*100));
+  // билеты пройдено
+  var ticketsDone={};
+  S.questions.forEach(function(q){if(S.progress[q.id]){ticketsDone[q.ticket]=(ticketsDone[q.ticket]||0)+1;}});
+  var fullTickets=Object.keys(ticketsDone).filter(function(t){return ticketsDone[t]>=20;}).length;
+  return {total:total,solved:solved,correct:correct,acc:acc,readiness:readiness,fullTickets:fullTickets,totalTickets:62};
+}
+
+// ===== ГЛАВНАЯ =====
+function renderHome(app){
+  var st=calcStats();
+  var name=S.user?S.user.name:'Гость';
+  var html='';
+  // шапка
+  html+='<div class="top"><div class="logo"><svg viewBox="0 0 24 24" fill="none"><path d="M4 17l1.8-5.4A2 2 0 017.7 10h8.6a2 2 0 011.9 1.6L20 17M4 17h16M4 17v2.5a1 1 0 001 1h1.5a1 1 0 001-1V17m11 0v2.5a1 1 0 001 1H20a1 1 0 001-1V17" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="7.5" cy="14" r="1.1" fill="#fff"/><circle cx="16.5" cy="14" r="1.1" fill="#fff"/></svg></div><div class="bname">Yoʻl</div>'
+    +'<div class="lang"><button class="'+(S.lang==='ru'?'on':'')+'" onclick="setLang(\'ru\')">RU</button><button class="'+(S.lang==='uz'?'on':'')+'" onclick="setLang(\'uz\')">UZ</button></div></div>';
+  // готовность
+  html+='<div class="road-card"><div class="glow"></div>'
+    +'<div class="lbl">'+t('readiness')+'</div>'
+    +'<div class="pct">'+st.readiness+'<small>%</small></div>'
+    +'<div class="road-stat"><div class="s"><b>'+st.solved+'</b><span>'+t('solved')+'</span></div><div class="s"><b>'+st.acc+'%</b><span>'+t('accuracy')+'</span></div><div class="s"><b>'+st.fullTickets+'/62</b><span>'+t('tickets')+'</span></div></div>'
+    +'<div class="road"><div class="lane"></div><div class="car" style="left:calc('+Math.max(5,Math.min(80,st.readiness*0.78))+'% )">🚗</div><div class="flag">🏁</div></div></div>';
+  // экзамен
+  html+='<div class="exam-btn" onclick="startExam(0)"><div class="ic">🎓</div><div class="txt"><h3>'+t('exam')+'</h3><p>'+t('exam_sub')+'</p></div><div class="go">→</div></div>';
+  // режимы 2x2
+  var errCount=Object.values(S.progress).filter(function(p){return !p.correct;}).length;
+  html+='<div class="grid">'
+    +'<div class="g tk" onclick="go(\'tickets\')"><div class="e">📚</div><b>'+t('mode_tickets')+'</b><span>'+t('mode_tickets_sub')+'</span></div>'
+    +'<div class="g er" onclick="go(\'errors\')"><div class="e">🎯</div><b>'+t('mode_errors')+'</b><span>'+errCount+' '+t('mode_errors_sub')+'</span></div>'
+    +'<div class="g du" onclick="duelStart()"><span class="badge">LIVE</span><div class="e">⚔️</div><b>'+t('mode_duel')+'</b><span>'+t('mode_duel_sub')+'</span></div>'
+    +'<div class="g vo" onclick="audioStart()"><div class="e">🔊</div><b>'+t('mode_audio')+'</b><span>'+t('mode_audio_sub')+'</span></div>'
+    +'</div>';
+  // рейтинг превью (заглушка пока)
+  html+='<div class="sec">'+t('rating_week')+' <span class="more" onclick="go(\'rating\')">'+t('all')+' →</span></div>';
+  html+='<div class="rank-prev" id="homeRank"><div style="padding:20px;text-align:center;color:var(--ink3);font-size:13px">Загрузка...</div></div>';
+  app.innerHTML=html;
+  loadHomeRank();
+  checkIncomingDuel();
+}
+
+function loadHomeRank(){
+  if(!S.dbOK)return;
+  sbGet('scores','order=weekly_score.desc&limit=3').then(function(rows){
+    if(!rows||!rows.length){document.getElementById('homeRank').innerHTML='<div style="padding:18px;text-align:center;color:var(--ink3);font-size:13px">Пока никого нет — будь первым!</div>';return;}
+    var html='';
+    rows.forEach(function(r,i){
+      html+='<div class="rank-row"><div class="rk '+(i===0?'g1':'')+'">'+(i+1)+'</div><div class="rav" style="background:'+avColor(r.user_email)+'">'+initial(r.user_email)+'</div><div class="rnm">'+esc((r.user_email||'').split('@')[0])+'</div><div class="rsc">'+(r.weekly_score||0)+'</div></div>';
+    });
+    document.getElementById('homeRank').innerHTML=html;
+  });
+}
+
+// ===== ЭКЗАМЕН (старт) =====
+function renderExamStart(app){
+  var html='<div class="h1">'+t('exam')+'</div>';
+  html+='<div class="qcard" style="text-align:center;padding:30px 20px">'
+    +'<div style="font-size:54px;margin-bottom:14px">🎓</div>'
+    +'<div style="font-size:18px;font-weight:800;margin-bottom:8px">'+t('exam')+' — '+(S.lang==='uz'?'GAI uslubida':'как в ГАИ')+'</div>'
+    +'<div style="font-size:14px;color:var(--ink2);line-height:1.6;margin-bottom:22px">20 '+t('question').toLowerCase()+'ов · 25 '+(S.lang==='uz'?'daqiqa':'минут')+'<br>'+(S.lang==='uz'?'2 xato — yiqilish':'2 ошибки — провал')+'</div>'
+    +'<button class="btn-main" onclick="startExam(0)">'+t('start_exam')+' →</button>'
+    +'</div>';
+  app.innerHTML=html;
+}
+
+// ===== БИЛЕТЫ =====
+function renderTickets(app){
+  var html='<div class="h1">'+t('mode_tickets')+'</div>';
+  // прогресс по билетам
+  var ticketsDone={};
+  S.questions.forEach(function(q){if(S.progress[q.id]&&S.progress[q.id].correct){ticketsDone[q.ticket]=(ticketsDone[q.ticket]||0)+1;}});
+  html+='<div class="tickets">';
+  for(var i=1;i<=62;i++){
+    var done=ticketsDone[i]||0;
+    var isDone=done>=20;
+    html+='<div class="tk-cell'+(isDone?' done':'')+'" onclick="startExam('+i+')"><b>'+i+'</b><span>'+done+'/20</span></div>';
+  }
+  html+='</div>';
+  app.innerHTML=html;
+}
+
+// ===== ЭКРАН ВОПРОСА (универсальный для экзамена/билета/ошибок) =====
+var QUIZ=null; // {questions, idx, answers, mode, ticket, startTime, timer}
+function startExam(ticket){
+  // собрать вопросы
+  var pool;
+  if(ticket>0){pool=S.questions.filter(function(q){return q.ticket===ticket;});}
+  else{pool=shuffle(S.questions.slice()).slice(0,20);}
+  if(!pool.length){toast('Вопросы ещё не загружены');return;}
+  QUIZ={questions:pool,idx:0,answers:[],mode:ticket>0?'ticket':'exam',ticket:ticket,startTime:Date.now(),maxErrors:2};
+  renderQuestion();
+}
+function startErrors(){
+  var errIds=Object.keys(S.progress).filter(function(id){return !S.progress[id].correct;});
+  var pool=S.questions.filter(function(q){return errIds.indexOf(String(q.id))>=0;});
+  if(!pool.length){toast(t('no_errors'));return;}
+  QUIZ={questions:pool,idx:0,answers:[],mode:'errors',ticket:0,startTime:Date.now(),maxErrors:99};
+  renderQuestion();
+}
+function renderQuestion(){
+  var app=document.getElementById('app');
+  var q=QUIZ.questions[QUIZ.idx];
+  var qtext=S.lang==='uz'&&q.question_uz?q.question_uz:q.question_ru;
+  var opts=(S.lang==='uz'&&q.options_uz?q.options_uz:q.options_ru).split('|');
+  var html='';
+  // шапка
+  html+='<div class="qhead"><div class="back" onclick="quizExit()">←</div>'
+    +'<div class="qtitle">'+(QUIZ.ticket>0?t('ticket')+' '+QUIZ.ticket:t('exam'))+'<span>'+t('question')+' '+(QUIZ.idx+1)+' '+t('of')+' '+QUIZ.questions.length+'</span></div>';
+  if(QUIZ.mode==='exam')html+='<div class="qtimer" id="examTimer">⏱ 25:00</div>';
+  html+='</div>';
+  // точки прогресса
+  html+='<div class="dots">';
+  for(var i=0;i<QUIZ.questions.length;i++){
+    var cls='';
+    if(i<QUIZ.answers.length)cls=QUIZ.answers[i].correct?'ok':'no';
+    else if(i===QUIZ.idx)cls='cur';
+    html+='<i class="'+cls+'"></i>';
+  }
+  html+='</div>';
+  // карточка
+  html+='<div class="qcard">';
+  if(q.image_url)html+='<div class="qpic"><img src="'+esc(q.image_url)+'" alt=""></div>';
+  html+='<div class="qtext">'+esc(qtext)+'</div>';
+  html+='<div class="ans" id="ansBox">';
+  opts.forEach(function(o,i){
+    html+='<button class="a" onclick="answerQ('+i+')"><span class="lk">'+String.fromCharCode(65+i)+'</span> '+esc(o)+'</button>';
+  });
+  html+='</div>';
+  html+='<div id="explainBox"></div>';
+  html+='<div id="nextBox"></div>';
+  html+='</div>';
+  app.innerHTML=html;
+  if(QUIZ.mode==='exam')startTimer();
+}
+function answerQ(idx){
+  var q=QUIZ.questions[QUIZ.idx];
+  if(QUIZ.answered)return;
+  QUIZ.answered=true;
+  var correct=idx===q.correct_index;
+  QUIZ.answers.push({qid:q.id,chosen:idx,correct:correct});
+  playSound(correct?'correct':'wrong');
+  // подсветка
+  var btns=document.querySelectorAll('#ansBox .a');
+  btns.forEach(function(b,i){
+    if(i===q.correct_index)b.classList.add('ok');
+    else if(i===idx)b.classList.add('no');
+    else b.classList.add('dim');
+    b.onclick=null;
+  });
+  // сохранить прогресс
+  saveProgress(q.id,correct);
+  // объяснение
+  var expl=S.lang==='uz'&&q.explain_uz?q.explain_uz:q.explain_ru;
+  if(expl){
+    document.getElementById('explainBox').innerHTML='<div class="explain"><div class="ai">🤖</div><div><b>'+t('why')+':</b> '+esc(expl)+'</div></div>';
+  }
+  // кнопка дальше
+  document.getElementById('nextBox').innerHTML='<button class="btn-main" style="margin-top:14px" onclick="nextQ()">'+(QUIZ.idx+1>=QUIZ.questions.length?(S.lang==='uz'?'Yakunlash':'Завершить'):t('next'))+' →</button>';
+  // проверка провала экзамена
+  if(QUIZ.mode==='exam'){
+    var errs=QUIZ.answers.filter(function(a){return !a.correct;}).length;
+    if(errs>QUIZ.maxErrors){QUIZ.failed=true;}
+  }
+}
+function nextQ(){
+  QUIZ.answered=false;
+  if(QUIZ.idx+1>=QUIZ.questions.length||QUIZ.failed){finishQuiz();return;}
+  QUIZ.idx++;
+  renderQuestion();
+}
+function quizExit(){if(QUIZ&&QUIZ.timer)clearInterval(QUIZ.timer);QUIZ=null;go('home');}
+
+// таймер экзамена
+function startTimer(){
+  if(QUIZ.timer)clearInterval(QUIZ.timer);
+  if(!QUIZ.endTime)QUIZ.endTime=Date.now()+25*60*1000;
+  QUIZ.timer=setInterval(function(){
+    var left=Math.max(0,Math.floor((QUIZ.endTime-Date.now())/1000));
+    var el=document.getElementById('examTimer');
+    if(el)el.textContent='⏱ '+Math.floor(left/60)+':'+('0'+(left%60)).slice(-2);
+    if(left<=0){clearInterval(QUIZ.timer);finishQuiz();}
+  },1000);
+}
+
+function shuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var x=a[i];a[i]=a[j];a[j]=x;}return a;}
+
+
+// ====== РЕЗУЛЬТАТ, СТАТИСТИКА, РЕЙТИНГ, ПРОФИЛЬ, ДАННЫЕ, ВХОД ======
+
+// ===== ФИНИШ КВИЗА =====
+function finishQuiz(){
+  if(QUIZ.timer)clearInterval(QUIZ.timer);
+  var correct=QUIZ.answers.filter(function(a){return a.correct;}).length;
+  var total=QUIZ.questions.length;
+  var errs=total-correct;
+  var time=Math.floor((Date.now()-QUIZ.startTime)/1000);
+  var passed=QUIZ.mode==='exam'?(errs<=QUIZ.maxErrors&&QUIZ.answers.length>=total):true;
+  // сохранить результат экзамена
+  if(QUIZ.mode==='exam'&&S.user&&S.dbOK){
+    sbPost('exam_results',{user_email:S.user.email,ticket:QUIZ.ticket,correct_count:correct,total:total,passed:passed,time_seconds:time});
+    addScore(passed?50:10);
+  }
+  renderResult(correct,total,errs,time,passed);
+}
+function renderResult(correct,total,errs,time,passed){
+  var app=document.getElementById('app');
+  var mm=Math.floor(time/60),ss=('0'+(time%60)).slice(-2);
+  var html='';
+  html+='<div class="result-hero"><div class="result-badge '+(passed?'pass':'fail')+'">'+(passed?'🎉':'😔')+'</div>'
+    +'<div class="result-title">'+(passed?t('exam_passed'):t('exam_failed'))+'</div>'
+    +'<div class="result-sub">'+correct+' '+t('of')+' '+total+' '+(S.lang==='uz'?'toʻgʻri':'правильно')+'</div></div>';
+  html+='<div class="result-stats"><div class="rs g"><b>'+correct+'</b><span>'+t('correct')+'</span></div><div class="rs r"><b>'+errs+'</b><span>'+t('errors')+'</span></div><div class="rs"><b>'+mm+':'+ss+'</b><span>'+t('time')+'</span></div></div>';
+  // разбор ошибок
+  var wrong=QUIZ.answers.filter(function(a){return !a.correct;});
+  if(wrong.length){
+    html+='<div class="sec">'+t('review_errors')+'</div>';
+    wrong.forEach(function(a){
+      var q=QUIZ.questions.find(function(x){return x.id===a.qid;});
+      if(!q)return;
+      var opts=(S.lang==='uz'&&q.options_uz?q.options_uz:q.options_ru).split('|');
+      var qtext=S.lang==='uz'&&q.question_uz?q.question_uz:q.question_ru;
+      html+='<div class="weak" style="align-items:flex-start"><span class="we">❌</span><div class="winfo"><div class="wn">'+esc(qtext)+'</div>'
+        +'<div style="font-size:12px;color:var(--ink3);margin-top:4px">'+(S.lang==='uz'?'Toʻgʻri':'Верно')+': <b style="color:var(--green)">'+esc(opts[q.correct_index]||'')+'</b></div></div></div>';
+    });
+  }else{
+    html+='<div class="weak" style="background:var(--mint)"><span class="we">✅</span><div class="winfo"><div class="wn">'+t('no_errors')+'</div></div></div>';
+  }
+  html+='<button class="btn-main" style="margin-top:18px" onclick="go(\'home\')">'+(S.lang==='uz'?'Bosh sahifa':'На главную')+'</button>';
+  if(!passed)html+='<button class="btn-ghost" style="margin-top:10px" onclick="startExam('+QUIZ.ticket+')">'+t('retry')+'</button>';
+  app.innerHTML=html;
+  QUIZ=null;
+}
+
+// ===== СТАТИСТИКА =====
+function renderStats(app){
+  var st=calcStats();
+  var html='<div class="h1">'+t('my_stats')+'</div>';
+  var circ=2*Math.PI*48,off=circ*(1-st.readiness/100);
+  html+='<div class="ring-card"><div class="ring"><svg width="110" height="110" viewBox="0 0 110 110"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00b86b"/><stop offset="1" stop-color="#7ed957"/></linearGradient></defs><circle cx="55" cy="55" r="48" fill="none" stroke="var(--line)" stroke-width="10"/><circle cx="55" cy="55" r="48" fill="none" stroke="url(#g)" stroke-width="10" stroke-linecap="round" stroke-dasharray="'+circ+'" stroke-dashoffset="'+off+'"/></svg><div class="center"><b>'+st.readiness+'%</b><span>'+(S.lang==='uz'?'tayyorlik':'готовность')+'</span></div></div>'
+    +'<div class="ring-info"><b>'+t('almost_ready')+'</b><p>'+(S.lang==='uz'?'Qolgan biletlarni yeching va zaif mavzularni mustahkamlang.':'Реши оставшиеся билеты и подтяни слабые темы.')+'</p></div></div>';
+  html+='<div class="stat-grid">'
+    +'<div class="sc"><span class="ic">✅</span><b>'+st.solved+'</b><span>'+(S.lang==='uz'?'yechilgan savol':'решено вопросов')+'</span></div>'
+    +'<div class="sc"><span class="ic">🎯</span><b>'+st.acc+'%</b><span>'+(S.lang==='uz'?'aniqlik':'средняя точность')+'</span></div>'
+    +'<div class="sc"><span class="ic">📋</span><b>'+st.fullTickets+'</b><span>'+(S.lang==='uz'?'62 biletdan':'из 62 билетов')+'</span></div>'
+    +'<div class="sc"><span class="ic">📝</span><b>'+st.correct+'</b><span>'+(S.lang==='uz'?'toʻgʻri javob':'верных ответов')+'</span></div></div>';
+  // слабые темы
+  var topics={};
+  S.questions.forEach(function(q){
+    if(S.progress[q.id]){var tp=q.topic||'Прочее';if(!topics[tp])topics[tp]={c:0,t:0};topics[tp].t++;if(S.progress[q.id].correct)topics[tp].c++;}
+  });
+  var weak=Object.keys(topics).map(function(k){return {name:k,pct:Math.round(topics[k].c/topics[k].t*100)};}).sort(function(a,b){return a.pct-b.pct;}).slice(0,4);
+  if(weak.length){
+    html+='<div class="sec">'+t('weak_topics')+'</div>';
+    weak.forEach(function(w){
+      var col=w.pct<60?'var(--red)':w.pct<80?'var(--amber)':'var(--green)';
+      html+='<div class="weak"><span class="we">'+(w.pct<60?'⚠️':'📊')+'</span><div class="winfo"><div class="wn">'+esc(w.name)+'</div><div class="wbar"><i style="width:'+w.pct+'%;background:'+col+'"></i></div></div><span class="wpc" style="color:'+col+'">'+w.pct+'%</span></div>';
+    });
+  }
+  app.innerHTML=html;
+}
+
+// ===== РЕЙТИНГ =====
+var RATING_TAB='week';
+function renderRating(app){
+  var html='<div class="h1">'+(S.lang==='uz'?'Reyting':'Рейтинг')+'</div>';
+  html+='<div class="tabs"><button class="'+(RATING_TAB==='week'?'on':'')+'" onclick="setRatingTab(\'week\')">'+t('week')+'</button><button class="'+(RATING_TAB==='month'?'on':'')+'" onclick="setRatingTab(\'month\')">'+t('month')+'</button><button class="'+(RATING_TAB==='all'?'on':'')+'" onclick="setRatingTab(\'all\')">'+t('alltime')+'</button></div>';
+  html+='<div id="ratingBody"><div style="padding:40px;text-align:center;color:var(--ink3)">Загрузка...</div></div>';
+  app.innerHTML=html;
+  loadRating();
+}
+function setRatingTab(tab){RATING_TAB=tab;go('rating');}
+function loadRating(){
+  if(!S.dbOK){document.getElementById('ratingBody').innerHTML='<div style="padding:40px;text-align:center;color:var(--ink3)">Нет соединения</div>';return;}
+  var field=RATING_TAB==='all'?'total_score':'weekly_score';
+  sbGet('scores','order='+field+'.desc&limit=50').then(function(rows){
+    rows=rows||[];
+    if(!rows.length){document.getElementById('ratingBody').innerHTML='<div style="padding:40px;text-align:center;color:var(--ink3)">Пока никого — будь первым!</div>';return;}
+    var html='';
+    // пьедестал топ-3
+    if(rows.length>=3){
+      var p=rows.slice(0,3);
+      html+='<div class="podium">';
+      html+='<div class="pod p2"><div class="pav">'+initial(p[1].user_email)+'</div><div class="pn">'+esc(p[1].user_email.split("@")[0])+'</div><div class="ps">'+p[1][field]+'</div><div class="base">2</div></div>';
+      html+='<div class="pod p1"><div class="pav"><span class="crown">👑</span>'+initial(p[0].user_email)+'</div><div class="pn">'+esc(p[0].user_email.split("@")[0])+'</div><div class="ps">'+p[0][field]+'</div><div class="base">1</div></div>';
+      html+='<div class="pod p3"><div class="pav">'+initial(p[2].user_email)+'</div><div class="pn">'+esc(p[2].user_email.split("@")[0])+'</div><div class="ps">'+p[2][field]+'</div><div class="base">3</div></div>';
+      html+='</div>';
+      rows=rows.slice(3);
+    }
+    html+='<div class="lb">';
+    rows.forEach(function(r,i){
+      var me=S.user&&r.user_email===S.user.email;
+      html+='<div class="lbr'+(me?' me':'')+'"><div class="n">'+(i+4)+'</div><div class="av" style="background:'+avColor(r.user_email)+'">'+initial(r.user_email)+'</div><div class="nm">'+(me?t('you'):esc(r.user_email.split("@")[0]))+'</div><div class="sc2">'+r[field]+'</div></div>';
+    });
+    html+='</div>';
+    document.getElementById('ratingBody').innerHTML=html;
+  });
+}
+
+// ===== ПРОФИЛЬ =====
+function renderProfile(app){
+  var name=S.user?S.user.name:'Гость';
+  var prem=S.user&&S.user.is_premium;
+  var html='<div class="prof-head"><div class="prof-av">'+initial(name)+'</div><div class="prof-name">'+esc(name)+'</div><div class="prof-meta">'+(S.user?esc((S.user.email||'').indexOf('tg_')===0?'через Telegram':S.user.email):'Не вошёл')+'</div></div>';
+  // премиум
+  if(prem){
+    html+='<div class="premium active-prem"><div class="pc-glow"></div><h3>✅ '+t('premium_active')+'</h3><p>'+(S.lang==='uz'?'Barcha imkoniyatlar ochiq. Rahmat!':'Все возможности открыты. Спасибо!')+'</p></div>';
+  }else{
+    html+='<div class="premium"><div class="pc-glow"></div><h3>⭐ '+t('premium_title')+'</h3><p>'+t('premium_desc')+'</p><button class="pbtn" onclick="buyPremium()">'+t('premium_buy')+' 19 900 '+(S.lang==='uz'?'soʻm':'сум')+' →</button></div>';
+  }
+  // меню
+  html+='<div class="menu">'
+    +'<div class="mi"><div class="mic">🌙</div><div class="mt">'+t('dark_theme')+'</div><div class="toggle'+(S.dark?' on':'')+'" onclick="toggleTheme()"></div></div>'
+    +'<div class="mi"><div class="mic">🔊</div><div class="mt">'+t('sound')+'</div><div class="toggle'+(S.sound?' on':'')+'" onclick="toggleSound()"></div></div>'
+    +'<div class="mi" onclick="setLang(S.lang===\'ru\'?\'uz\':\'ru\')"><div class="mic">🌐</div><div class="mt">'+t('language')+'</div><div class="ma">'+(S.lang==='ru'?'Русский':'Oʻzbek')+' ›</div></div>';
+  if(S.user&&S.user.role==='admin')html+='<div class="mi" onclick="go(\'admin\')"><div class="mic">🛡️</div><div class="mt">Админ-панель</div><div class="ma">›</div></div>';
+  if(S.user&&S.user.role!=='admin')html+='<div class="mi" onclick="adminLogin()"><div class="mic">🔑</div><div class="mt" style="color:var(--ink3)">Вход для админа</div></div>';
+  if(S.user)html+='<div class="mi" onclick="logout()"><div class="mic">🚪</div><div class="mt" style="color:var(--red)">'+t('logout')+'</div></div>';
+  html+='</div>';
+  if(!S.user)html+='<button class="btn-main" style="margin-top:16px" onclick="showAuth()">'+t('login')+'</button>';
+  app.innerHTML=html;
+}
+function toggleSound(){S.sound=!S.sound;sv();if(S.sound)playSound('correct');go('profile');}
+function buyPremium(){toast(S.lang==='uz'?'Toʻlov tizimi tez orada':'Платёжная система скоро');}
+
+function renderErrors(app){startErrors();}
+
+// ===== СОХРАНЕНИЕ ПРОГРЕССА =====
+function saveProgress(qid,correct){
+  S.progress[qid]={correct:correct};
+  if(S.user&&S.dbOK){
+    // upsert через on_conflict (один запрос, без дублей)
+    fetch(SB_URL+'/rest/v1/progress?on_conflict=user_email,question_id',{
+      method:'POST',
+      headers:Object.assign({},SBH,{Prefer:'resolution=merge-duplicates'}),
+      body:JSON.stringify({user_email:S.user.email,question_id:qid,correct:correct})
+    }).catch(function(){});
+  }
+}
+function addScore(pts){
+  if(!S.user||!S.dbOK)return;
+  var wk=weekStart();
+  sbGet('scores','user_email=eq.'+encodeURIComponent(S.user.email)).then(function(rows){
+    if(rows&&rows.length){
+      var r=rows[0];
+      var weekly=(r.week_start===wk)?(r.weekly_score||0)+pts:pts;
+      sbPatch('scores','user_email=eq.'+encodeURIComponent(S.user.email),{total_score:(r.total_score||0)+pts,weekly_score:weekly,week_start:wk});
+    }else{
+      sbPost('scores',{user_email:S.user.email,total_score:pts,weekly_score:pts,week_start:wk});
+    }
+  });
+}
+function weekStart(){var d=new Date();var day=d.getDay()||7;d.setDate(d.getDate()-day+1);return d.toISOString().slice(0,10);}
+
+// ===== ЗАГРУЗКА ДАННЫХ =====
+function loadAll(){
+  if(!S.dbOK)return Promise.resolve();
+  var tasks=[];
+  // вопросы (постранично, обход лимита 1000)
+  tasks.push(loadQuestions());
+  // прогресс пользователя
+  if(S.user)tasks.push(sbGet('progress','user_email=eq.'+encodeURIComponent(S.user.email)+'&select=question_id,correct').then(function(rows){
+    (rows||[]).forEach(function(p){S.progress[p.question_id]={correct:p.correct};});
+  }));
+  return Promise.all(tasks);
+}
+function loadQuestions(){
+  var all=[],page=0,size=1000;
+  function next(){
+    return sbGet('questions','select=*&order=ticket.asc,num.asc&offset='+(page*size)+'&limit='+size).then(function(rows){
+      if(rows&&rows.length){all=all.concat(rows);if(rows.length===size){page++;return next();}}
+      S.questions=all;
+    });
+  }
+  return next();
+}
+
+// ===== ВХОД / РЕГИСТРАЦИЯ =====
+function showAuth(){
+  var html='<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal">'
+    +'<h2>'+t('login')+'</h2><p>'+(S.lang==='uz'?'Hisobingizga kiring yoki yangi yarating':'Войдите или создайте аккаунт')+'</p>'
+    +'<div class="field"><label>'+t('email')+'</label><input id="auEm" type="email" placeholder="email"></div>'
+    +'<div class="field"><label>'+t('password')+'</label><input id="auPw" type="password" placeholder="••••"></div>'
+    +'<div class="ferr" id="auErr"></div>'
+    +'<button class="btn-main" onclick="doLogin()">'+t('enter')+'</button>'
+    +'<button class="btn-ghost" style="margin-top:10px" onclick="showRegister()">'+t('create_acc')+'</button>'
+    +'</div></div>';
+  document.getElementById('modalRoot').innerHTML=html;
+}
+function showRegister(){
+  var html='<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal">'
+    +'<h2>'+t('register')+'</h2>'
+    +'<div class="field"><label>'+t('name')+'</label><input id="rgNm" placeholder="'+t('name')+'"></div>'
+    +'<div class="field"><label>'+t('email')+'</label><input id="rgEm" type="email" placeholder="email"></div>'
+    +'<div class="field"><label>'+t('password')+'</label><input id="rgPw" type="password" placeholder="••••"></div>'
+    +'<div class="ferr" id="rgErr"></div>'
+    +'<button class="btn-main" onclick="doRegister()">'+t('create_acc')+'</button>'
+    +'</div></div>';
+  document.getElementById('modalRoot').innerHTML=html;
+}
+function closeModal(){document.getElementById('modalRoot').innerHTML='';}
+function showErr(id,msg){var e=document.getElementById(id);if(e){e.textContent=msg;e.style.display='block';}}
+
+function doLogin(){
+  var em=val('auEm'),pw=val('auPw');
+  if(!em||!pw){showErr('auErr','Введите email и пароль');return;}
+  sbGet('users','email=eq.'+encodeURIComponent(em)+'&select=*').then(function(rows){
+    if(!rows||!rows.length){showErr('auErr','❌ Email не найден');return;}
+    var u=rows[0];
+    if(u.password!==pw){showErr('auErr','❌ Неверный пароль');return;}
+    if(u.status==='blocked'){showErr('auErr','🚫 Аккаунт заблокирован');return;}
+    setUser(u);closeModal();
+    if(isTG()&&TG_USER)sbPatch('users','email=eq.'+encodeURIComponent(em),{tg_id:String(TG_USER.id),tg_chat_id:String(TG_USER.id)});
+    loadAll().then(function(){go('home');});
+    toast('Добро пожаловать!');
+  });
+}
+function doRegister(){
+  var nm=val('rgNm'),em=val('rgEm'),pw=val('rgPw');
+  if(!nm||!em||!pw){showErr('rgErr','Заполни все поля');return;}
+  sbGet('users','email=eq.'+encodeURIComponent(em)+'&select=email').then(function(rows){
+    if(rows&&rows.length){showErr('rgErr','❌ Email уже занят');return;}
+    var newU={email:em,password:pw,name:nm,lang:S.lang,status:'active',role:'student'};
+    if(isTG()&&TG_USER){newU.tg_id=String(TG_USER.id);newU.tg_chat_id=String(TG_USER.id);}
+    sbPost('users',newU).then(function(res){
+      if(!res){showErr('rgErr','Ошибка сохранения: '+(window._lastSbErr||'проверь RLS в Supabase'));return;}
+      setUser(newU);closeModal();
+      loadAll().then(function(){go('home');});
+      toast('Аккаунт создан!');
+    });
+  });
+}
+function setUser(u){S.user={email:u.email,name:u.name,lang:u.lang||'ru',coins:u.coins||0,is_premium:!!u.is_premium,role:u.role||'student'};if(u.lang)S.lang=u.lang;sv();}
+function logout(){S.user=null;S.progress={};sv();go('home');}
+function val(id){var e=document.getElementById(id);return e?e.value.trim():'';}
+
+// ===== АВТО-ВХОД через Telegram =====
+function tgAutoLogin(){
+  if(!TG_USER||S.user||!S.dbOK)return Promise.resolve();
+  var tgEmail='tg_'+TG_USER.id+'@yol.app';
+  return sbGet('users','tg_id=eq.'+encodeURIComponent(String(TG_USER.id))+'&select=*').then(function(rows){
+    if(rows&&rows.length){setUser(rows[0]);return;}
+    // создать новый
+    var newU={email:tgEmail,name:TG_USER.name,lang:S.lang,status:'active',role:'student',tg_id:String(TG_USER.id),tg_chat_id:String(TG_USER.id)};
+    return sbPost('users',newU).then(function(){setUser(newU);});
+  });
+}
+
+// ===== АУДИО-РЕЖИМ (вопросы голосом) =====
+var AUDIO=null;
+function speak(text){
+  try{
+    window.speechSynthesis.cancel();
+    var u=new SpeechSynthesisUtterance(text);
+    u.lang=S.lang==='uz'?'uz-UZ':'ru-RU';
+    u.rate=0.95;
+    window.speechSynthesis.speak(u);
+  }catch(e){}
+}
+function audioStart(){
+  if(!S.user){toast('Сначала войдите');showAuth();return;}
+  if(!S.questions.length){toast('Вопросы не загружены');return;}
+  if(!('speechSynthesis' in window)){toast('Голос не поддерживается на этом устройстве');return;}
+  AUDIO={questions:shuffle(S.questions.slice()).slice(0,20),idx:0,answers:[]};
+  audioRender();
+}
+function audioRender(){
+  var app=document.getElementById('app');
+  var q=AUDIO.questions[AUDIO.idx];
+  var qtext=S.lang==='uz'&&q.question_uz?q.question_uz:q.question_ru;
+  var opts=(S.lang==='uz'&&q.options_uz?q.options_uz:q.options_ru).split('|');
+  var html='<div class="qhead"><div class="back" onclick="audioExit()">←</div><div class="qtitle">🔊 Аудио<span>Вопрос '+(AUDIO.idx+1)+' из '+AUDIO.questions.length+'</span></div></div>';
+  html+='<div class="qcard">';
+  html+='<div style="text-align:center;padding:20px 0"><button onclick="audioSpeak()" style="width:90px;height:90px;border-radius:50%;background:linear-gradient(135deg,#00b86b,#059862);border:none;cursor:pointer;box-shadow:0 12px 28px -8px rgba(0,184,107,.5);font-size:38px">🔊</button><div style="font-size:13px;color:var(--ink3);margin-top:12px">Нажми чтобы прослушать</div></div>';
+  html+='<div class="qtext" style="text-align:center">'+esc(qtext)+'</div>';
+  html+='<div class="ans" id="audAns">';
+  opts.forEach(function(o,i){html+='<button class="a" onclick="audioAnswer('+i+')"><span class="lk">'+String.fromCharCode(65+i)+'</span> '+esc(o)+'</button>';});
+  html+='</div><div id="audNext"></div></div>';
+  app.innerHTML=html;
+  // автоматически озвучить вопрос
+  setTimeout(audioSpeak,300);
+}
+function audioSpeak(){
+  var q=AUDIO.questions[AUDIO.idx];
+  var qtext=S.lang==='uz'&&q.question_uz?q.question_uz:q.question_ru;
+  var opts=(S.lang==='uz'&&q.options_uz?q.options_uz:q.options_ru).split('|');
+  var full=qtext+'. ';
+  opts.forEach(function(o,i){full+=String.fromCharCode(65+i)+': '+o+'. ';});
+  speak(full);
+}
+function audioAnswer(idx){
+  if(AUDIO.answered)return;AUDIO.answered=true;
+  var q=AUDIO.questions[AUDIO.idx];
+  var correct=idx===q.correct_index;
+  AUDIO.answers.push(correct);
+  playSound(correct?'correct':'wrong');
+  saveProgress(q.id,correct);
+  var btns=document.querySelectorAll('#audAns .a');
+  btns.forEach(function(b,i){if(i===q.correct_index)b.classList.add('ok');else if(i===idx)b.classList.add('no');b.onclick=null;});
+  speak(correct?(S.lang==='uz'?'Toʻgʻri':'Правильно'):(S.lang==='uz'?'Notoʻgʻri':'Неверно'));
+  document.getElementById('audNext').innerHTML='<button class="btn-main" style="margin-top:14px" onclick="audioNext()">'+(AUDIO.idx+1>=AUDIO.questions.length?'Завершить':t('next'))+' →</button>';
+}
+function audioNext(){
+  AUDIO.answered=false;
+  if(AUDIO.idx+1>=AUDIO.questions.length){
+    window.speechSynthesis.cancel();
+    var correct=AUDIO.answers.filter(Boolean).length;
+    toast('Готово! '+correct+' из '+AUDIO.questions.length);
+    AUDIO=null;go('home');return;
+  }
+  AUDIO.idx++;audioRender();
+}
+function audioExit(){window.speechSynthesis.cancel();AUDIO=null;go('home');}
+
+// ===== ДУЭЛИ (онлайн-баттл) =====
+var DUEL=null,DUEL_POLL=null;
+// проверка входящего вызова от друга
+function checkIncomingDuel(){
+  if(!S.user||!S.dbOK)return;
+  sbGet('duels','target_email=eq.'+encodeURIComponent(S.user.email)+'&status=eq.waiting&duel_type=eq.friend&order=created_at.desc&limit=1').then(function(rows){
+    if(!rows||!rows.length)return;
+    var d=rows[0];
+    if(document.getElementById('duelInvite'))return;
+    var banner=document.createElement('div');
+    banner.id='duelInvite';
+    banner.style.cssText='position:fixed;top:calc(16px + var(--tg-top,0px));left:50%;transform:translateX(-50%);width:calc(100% - 34px);max-width:446px;background:linear-gradient(135deg,#7c6cff,#5a4fd0);color:#fff;padding:14px 16px;border-radius:18px;z-index:200;box-shadow:0 12px 30px -10px rgba(124,108,255,.6);display:flex;align-items:center;gap:12px';
+    banner.innerHTML='<div style="font-size:26px">⚔️</div><div style="flex:1"><div style="font-size:14px;font-weight:800">'+esc(d.player1_name||'Игрок')+' вызывает!</div><div style="font-size:12px;opacity:.85">Дуэль ждёт</div></div><button onclick="acceptFriendDuel('+d.id+')" style="background:#fff;color:#5a4fd0;border:none;font-weight:800;padding:9px 16px;border-radius:12px;font-family:var(--f);font-size:13px;cursor:pointer">Принять</button>';
+    document.body.appendChild(banner);
+  });
+}
+function acceptFriendDuel(id){
+  var b=document.getElementById('duelInvite');if(b)b.remove();
+  sbPatch('duels','id=eq.'+id,{player2_email:S.user.email,player2_name:S.user.name,status:'active'}).then(function(){
+    DUEL={id:id,isCreator:false,questions:[],idx:0,answers:[],myScore:0};
+    duelLoadAndStart();
+  });
+}
+
+function duelStart(){
+  if(!S.user){toast('Сначала войдите');showAuth();return;}
+  if(!S.questions.length){toast('Вопросы не загружены');return;}
+  var app=document.getElementById('app');
+  var html='<div class="qhead"><div class="back" onclick="go(\'home\')">←</div><div class="qtitle">⚔️ '+t('mode_duel')+'<span>Выбери режим</span></div></div>';
+  html+='<div class="exam-btn" onclick="duelRandom()"><div class="ic">🎲</div><div class="txt"><h3>Случайный соперник</h3><p>Найдём игрока онлайн</p></div><div class="go">→</div></div>';
+  html+='<div class="exam-btn" onclick="duelFriendPrompt()"><div class="ic" style="background:linear-gradient(135deg,#7c6cff,#5a4fd0)">👥</div><div class="txt"><h3>Вызвать друга</h3><p>По ID или email</p></div><div class="go">→</div></div>';
+  html+='<div class="exam-btn" onclick="duelRoomMenu()"><div class="ic" style="background:linear-gradient(135deg,#ff9d0a,#e8500f)">🚪</div><div class="txt"><h3>Комната по коду</h3><p>Создать или войти</p></div><div class="go">→</div></div>';
+  // моё ID для друзей
+  html+='<div class="qcard" style="padding:16px;margin-top:8px;text-align:center"><div style="font-size:12px;color:var(--ink3);margin-bottom:4px">Твой ID для друзей</div><div style="font-size:16px;font-weight:800;color:var(--green);font-family:monospace">'+esc(myDuelId())+'</div><div style="font-size:11px;color:var(--ink3);margin-top:4px">Поделись — друг вызовет тебя по нему</div></div>';
+  app.innerHTML=html;
+}
+function myDuelId(){
+  if(!S.user)return '';
+  // короткий ID из email
+  return (S.user.email||'').split('@')[0];
+}
+function duelRandom(){
+  var app=document.getElementById('app');
+  app.innerHTML='<div class="h1">⚔️ '+t('mode_duel')+'</div>'
+    +'<div class="qcard" style="text-align:center;padding:40px 20px"><div class="spinner" style="margin:0 auto 18px"></div>'
+    +'<div style="font-size:16px;font-weight:700">Ищем соперника...</div>'
+    +'<div style="font-size:13px;color:var(--ink3);margin-top:6px">Подбираем игрока для баттла</div>'
+    +'<button class="btn-ghost" style="margin-top:20px" onclick="duelCancel()">Отмена</button></div>';
+  var qs=shuffle(S.questions.slice()).slice(0,10).map(function(q){return q.id;});
+  sbRpc('find_or_create_duel',{p_email:S.user.email,p_name:S.user.name,p_questions:JSON.stringify(qs)}).then(function(res){
+    if(!res||!res.length){toast('Ошибка дуэли');go('home');return;}
+    var d=res[0];
+    DUEL={id:d.duel_id,isCreator:d.is_creator,questions:[],idx:0,answers:[],myScore:0};
+    if(d.is_creator)duelWaitOpponent();
+    else duelLoadAndStart();
+  });
+}
+// Вызвать друга по ID
+function duelFriendPrompt(){
+  var html='<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal">'
+    +'<h2>👥 Вызвать друга</h2><p>Введи ID или email друга — ему придёт вызов</p>'
+    +'<div class="field"><label>ID или email друга</label><input id="frId" placeholder="например aziz или aziz@mail.com"></div>'
+    +'<div class="ferr" id="frErr"></div>'
+    +'<button class="btn-main" onclick="duelChallengeFriend()">Отправить вызов ⚔️</button>'
+    +'</div></div>';
+  document.getElementById('modalRoot').innerHTML=html;
+}
+function duelChallengeFriend(){
+  var fid=val('frId');
+  if(!fid){showErr('frErr','Введи ID друга');return;}
+  // найти друга: по email или по началу email (ID)
+  var q=fid.indexOf('@')>=0?'email=eq.'+encodeURIComponent(fid):'email=like.'+encodeURIComponent(fid+'@')+'*';
+  sbGet('users',q+'&select=email,name&limit=1').then(function(rows){
+    if(!rows||!rows.length){showErr('frErr','❌ Друг не найден. Проверь ID');return;}
+    var friend=rows[0];
+    if(friend.email===S.user.email){showErr('frErr','Нельзя вызвать себя 🙂');return;}
+    var qs=shuffle(S.questions.slice()).slice(0,10).map(function(q){return q.id;});
+    sbRpc('challenge_friend',{p_email:S.user.email,p_name:S.user.name,p_questions:JSON.stringify(qs),p_target:friend.email}).then(function(id){
+      if(!id){showErr('frErr','Ошибка');return;}
+      closeModal();
+      DUEL={id:id,isCreator:true,questions:[],idx:0,answers:[],myScore:0};
+      var app=document.getElementById('app');
+      app.innerHTML='<div class="h1">⚔️ Вызов отправлен</div><div class="qcard" style="text-align:center;padding:40px 20px"><div class="spinner" style="margin:0 auto 18px"></div><div style="font-size:16px;font-weight:700">Ждём '+esc(friend.name||friend.email)+'...</div><div style="font-size:13px;color:var(--ink3);margin-top:6px">Друг должен открыть приложение и принять</div><button class="btn-ghost" style="margin-top:20px" onclick="duelCancel()">Отмена</button></div>';
+      duelWaitOpponent();
+    });
+  });
+}
+// Комнаты
+function duelRoomMenu(){
+  var html='<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal">'
+    +'<h2>🚪 Комната</h2><p>Создай комнату и дай код друзьям, или войди по коду</p>'
+    +'<button class="btn-main" onclick="duelCreateRoom()">Создать комнату</button>'
+    +'<div style="text-align:center;color:var(--ink3);font-size:12px;margin:14px 0">или</div>'
+    +'<div class="field"><label>Код комнаты</label><input id="roomCode" placeholder="например 4827" style="text-align:center;font-size:20px;letter-spacing:3px;font-weight:800"></div>'
+    +'<div class="ferr" id="roomErr"></div>'
+    +'<button class="btn-ghost" onclick="duelJoinRoom()">Войти по коду</button>'
+    +'</div></div>';
+  document.getElementById('modalRoot').innerHTML=html;
+}
+function duelCreateRoom(){
+  var code=String(Math.floor(1000+Math.random()*9000));
+  var qs=shuffle(S.questions.slice()).slice(0,10).map(function(q){return q.id;});
+  sbRpc('create_room',{p_email:S.user.email,p_name:S.user.name,p_questions:JSON.stringify(qs),p_code:code}).then(function(id){
+    if(!id){toast('Ошибка');return;}
+    closeModal();
+    DUEL={id:id,isCreator:true,questions:[],idx:0,answers:[],myScore:0};
+    var app=document.getElementById('app');
+    app.innerHTML='<div class="h1">🚪 Комната создана</div>'
+      +'<div class="qcard" style="text-align:center;padding:30px 20px"><div style="font-size:13px;color:var(--ink3);margin-bottom:8px">Код комнаты — дай друзьям</div>'
+      +'<div style="font-size:42px;font-weight:800;color:var(--green);letter-spacing:6px;font-family:monospace;margin-bottom:16px">'+code+'</div>'
+      +'<div class="spinner" style="margin:0 auto 14px"></div><div style="font-size:14px;color:var(--ink2)">Ждём игроков...</div>'
+      +'<button class="btn-ghost" style="margin-top:18px" onclick="duelCancel()">Отмена</button></div>';
+    duelWaitOpponent();
+  });
+}
+function duelJoinRoom(){
+  var code=val('roomCode');
+  if(!code){showErr('roomErr','Введи код');return;}
+  sbRpc('join_room',{p_email:S.user.email,p_name:S.user.name,p_code:code}).then(function(id){
+    if(!id||id===0){showErr('roomErr','❌ Комната не найдена');return;}
+    closeModal();
+    DUEL={id:id,isCreator:false,questions:[],idx:0,answers:[],myScore:0};
+    duelLoadAndStart();
+  });
+}
+function duelWaitOpponent(){
+  if(DUEL_POLL)clearInterval(DUEL_POLL);
+  DUEL_POLL=setInterval(function(){
+    sbGet('duels','id=eq.'+DUEL.id+'&select=status,player2_name,questions_json').then(function(rows){
+      if(rows&&rows.length&&rows[0].status==='active'){
+        clearInterval(DUEL_POLL);
+        toast('Соперник найден: '+(rows[0].player2_name||'игрок'));
+        duelLoadAndStart();
+      }
+    });
+  },2000);
+}
+function duelLoadAndStart(){
+  if(DUEL_POLL)clearInterval(DUEL_POLL);
+  sbGet('duels','id=eq.'+DUEL.id+'&select=questions_json').then(function(rows){
+    if(!rows||!rows.length){go('home');return;}
+    var ids=JSON.parse(rows[0].questions_json||'[]');
+    DUEL.questions=ids.map(function(id){return S.questions.find(function(q){return q.id===id;});}).filter(Boolean);
+    if(!DUEL.questions.length){toast('Вопросы не найдены');go('home');return;}
+    DUEL.idx=0;DUEL.answers=[];DUEL.myScore=0;DUEL.startTime=Date.now();
+    duelRenderQ();
+  });
+}
+function duelRenderQ(){
+  var app=document.getElementById('app');
+  var q=DUEL.questions[DUEL.idx];
+  var qtext=S.lang==='uz'&&q.question_uz?q.question_uz:q.question_ru;
+  var opts=(S.lang==='uz'&&q.options_uz?q.options_uz:q.options_ru).split('|');
+  var html='<div class="qhead"><div class="back" onclick="duelCancel()">←</div><div class="qtitle">⚔️ Дуэль<span>Вопрос '+(DUEL.idx+1)+' из '+DUEL.questions.length+'</span></div><div class="qtimer" id="duelScore">⭐ '+DUEL.myScore+'</div></div>';
+  html+='<div class="dots">';
+  for(var i=0;i<DUEL.questions.length;i++){var cls='';if(i<DUEL.answers.length)cls=DUEL.answers[i]?'ok':'no';else if(i===DUEL.idx)cls='cur';html+='<i class="'+cls+'"></i>';}
+  html+='</div><div class="qcard">';
+  if(q.image_url)html+='<div class="qpic"><img src="'+esc(q.image_url)+'" alt=""></div>';
+  html+='<div class="qtext">'+esc(qtext)+'</div><div class="ans" id="duelAns">';
+  opts.forEach(function(o,i){html+='<button class="a" onclick="duelAnswer('+i+')"><span class="lk">'+String.fromCharCode(65+i)+'</span> '+esc(o)+'</button>';});
+  html+='</div></div>';
+  app.innerHTML=html;
+}
+function duelAnswer(idx){
+  if(DUEL.answered)return;DUEL.answered=true;
+  var q=DUEL.questions[DUEL.idx];
+  var correct=idx===q.correct_index;
+  DUEL.answers.push(correct);
+  if(correct)DUEL.myScore++;
+  playSound(correct?'correct':'wrong');
+  var btns=document.querySelectorAll('#duelAns .a');
+  btns.forEach(function(b,i){if(i===q.correct_index)b.classList.add('ok');else if(i===idx)b.classList.add('no');b.onclick=null;});
+  document.getElementById('duelScore').textContent='⭐ '+DUEL.myScore;
+  setTimeout(function(){
+    DUEL.answered=false;
+    if(DUEL.idx+1>=DUEL.questions.length){duelFinish();return;}
+    DUEL.idx++;duelRenderQ();
+  },900);
+}
+function duelFinish(){
+  // записать свой результат
+  var field=DUEL.isCreator?'p1_score':'p2_score';
+  var ffield=DUEL.isCreator?'p1_finished':'p2_finished';
+  var patch={};patch[field]=DUEL.myScore;patch[ffield]=true;
+  sbPatch('duels','id=eq.'+DUEL.id,patch);
+  if(S.user&&S.dbOK)addScore(DUEL.myScore*3);
+  // ждём соперника и показываем результат
+  var app=document.getElementById('app');
+  app.innerHTML='<div class="result-hero"><div class="result-badge pass">⚔️</div><div class="result-title">Дуэль завершена</div><div class="result-sub">Твой счёт: '+DUEL.myScore+' из '+DUEL.questions.length+'</div></div>'
+    +'<div class="qcard" style="text-align:center;padding:30px"><div class="spinner" style="margin:0 auto 14px"></div><div style="font-size:14px;color:var(--ink2)">Ждём соперника...</div></div>';
+  var tries=0;
+  if(DUEL_POLL)clearInterval(DUEL_POLL);
+  DUEL_POLL=setInterval(function(){
+    tries++;
+    sbGet('duels','id=eq.'+DUEL.id+'&select=*').then(function(rows){
+      if(!rows||!rows.length)return;
+      var d=rows[0];
+      var bothDone=d.p1_finished&&d.p2_finished;
+      if(bothDone||tries>15){
+        clearInterval(DUEL_POLL);
+        duelShowResult(d);
+      }
+    });
+  },2000);
+}
+function duelShowResult(d){
+  var myScore=DUEL.isCreator?d.p1_score:d.p2_score;
+  var oppScore=DUEL.isCreator?d.p2_score:d.p1_score;
+  var oppName=DUEL.isCreator?(d.player2_name||'Соперник'):(d.player1_name||'Соперник');
+  var won=myScore>oppScore,tie=myScore===oppScore;
+  var app=document.getElementById('app');
+  var emoji=won?'🏆':tie?'🤝':'😔';
+  var title=won?'Победа!':tie?'Ничья':'Поражение';
+  var html='<div class="result-hero"><div class="result-badge '+(won?'pass':'fail')+'">'+emoji+'</div><div class="result-title">'+title+'</div></div>';
+  html+='<div class="result-stats"><div class="rs g"><b>'+myScore+'</b><span>ТЫ</span></div><div class="rs"><b>vs</b><span> </span></div><div class="rs r"><b>'+oppScore+'</b><span>'+esc(oppName.toUpperCase())+'</span></div></div>';
+  if(won)html+='<div class="weak" style="background:var(--mint)"><span class="we">🎉</span><div class="winfo"><div class="wn">+'+(myScore*3)+' баллов к рейтингу!</div></div></div>';
+  html+='<button class="btn-main" style="margin-top:18px" onclick="go(\'home\')">На главную</button>';
+  html+='<button class="btn-ghost" style="margin-top:10px" onclick="duelStart()">Ещё раз ⚔️</button>';
+  app.innerHTML=html;
+  DUEL=null;
+}
+function duelCancel(){
+  if(DUEL_POLL)clearInterval(DUEL_POLL);
+  if(DUEL&&DUEL.id&&DUEL.isCreator){
+    // удалить свою ждущую дуэль
+    fetch(SB_URL+'/rest/v1/duels?id=eq.'+DUEL.id+'&status=eq.waiting',{method:'DELETE',headers:SBH}).catch(function(){});
+  }
+  DUEL=null;go('home');
+}
+
+// ===== АДМИНКА =====
+function adminLogin(){
+  var html='<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal">'
+    +'<h2>🔑 Вход для админа</h2><p>Введите пароль администратора</p>'
+    +'<div class="field"><label>Пароль</label><input id="admPw" type="password" placeholder="••••"></div>'
+    +'<div class="ferr" id="admErr"></div>'
+    +'<button class="btn-main" onclick="doAdminLogin()">Войти</button>'
+    +'</div></div>';
+  document.getElementById('modalRoot').innerHTML=html;
+}
+function doAdminLogin(){
+  if(!S.user){showErr('admErr','Сначала войдите в аккаунт');return;}
+  var pw=val('admPw');
+  if(!pw){showErr('admErr','Введите пароль');return;}
+  sbRpc('make_admin',{p_email:S.user.email,p_password:pw}).then(function(res){
+    if(res===true){
+      S.user.role='admin';sv();closeModal();
+      toast('✅ Вы вошли как админ');go('admin');
+    }else{
+      showErr('admErr','❌ Неверный пароль');
+    }
+  });
+}
+
+var ADMIN_TAB='add';
+function renderAdmin(app){
+  if(!S.user||S.user.role!=='admin'){app.innerHTML='<div class="h1">Доступ закрыт</div><button class="btn-ghost" onclick="go(\'profile\')">Назад</button>';return;}
+  var html='<div class="qhead"><div class="back" onclick="go(\'profile\')">←</div><div class="qtitle">🛡️ Админка<span>Управление</span></div></div>';
+  html+='<div class="tabs"><button class="'+(ADMIN_TAB==='add'?'on':'')+'" onclick="setAdminTab(\'add\')">Добавить</button><button class="'+(ADMIN_TAB==='list'?'on':'')+'" onclick="setAdminTab(\'list\')">Вопросы</button><button class="'+(ADMIN_TAB==='stats'?'on':'')+'" onclick="setAdminTab(\'stats\')">Сложные</button></div>';
+  html+='<div id="adminBody"></div>';
+  app.innerHTML=html;
+  renderAdminBody();
+}
+function setAdminTab(tab){ADMIN_TAB=tab;renderAdminBody();}
+function renderAdminBody(){
+  var el=document.getElementById('adminBody');
+  if(!el)return;
+  if(ADMIN_TAB==='add')renderAdminAdd(el);
+  else if(ADMIN_TAB==='list')renderAdminList(el);
+  else if(ADMIN_TAB==='stats')renderAdminStats(el);
+}
+
+// --- Добавление вопроса (с картинкой + ИИ-объяснение) ---
+function renderAdminAdd(el){
+  var html='<div class="qcard" style="padding:16px">'
+    +'<div class="field"><label>Билет (1-62)</label><input id="aqTicket" type="number" placeholder="4"></div>'
+    +'<div class="field"><label>Номер вопроса (1-20)</label><input id="aqNum" type="number" placeholder="7"></div>'
+    +'<div class="field"><label>Тема</label><input id="aqTopic" placeholder="Знаки приоритета"></div>'
+    +'<div class="field"><label>Ссылка на картинку (необязательно)</label><input id="aqImg" placeholder="https://..."></div>'
+    +'<div class="field"><label>Вопрос (рус)</label><input id="aqQru" placeholder="Что означает знак?"></div>'
+    +'<div class="field"><label>Вопрос (узб)</label><input id="aqQuz" placeholder="Belgi nimani anglatadi?"></div>'
+    +'<div class="field"><label>Варианты рус (через |)</label><input id="aqOru" placeholder="Вариант А|Вариант Б|Вариант В"></div>'
+    +'<div class="field"><label>Варианты узб (через |)</label><input id="aqOuz" placeholder="A variant|B variant|V variant"></div>'
+    +'<div class="field"><label>Правильный (номер с 1)</label><input id="aqCor" type="number" placeholder="2"></div>'
+    +'<div class="field"><label>Объяснение рус</label><input id="aqEru" placeholder="Почему этот ответ..."></div>'
+    +'<div class="field"><label>Объяснение узб</label><input id="aqEuz" placeholder="Nega bu javob..."></div>'
+    +'<div class="ferr" id="aqErr"></div>'
+    +'<button class="btn-main" onclick="adminSaveQ()">💾 Сохранить вопрос</button>'
+    +'</div>'
+    +'<div class="qcard" style="padding:16px;margin-top:12px">'
+    +'<div style="font-size:14px;font-weight:800;margin-bottom:6px">📥 Массовая загрузка</div>'
+    +'<p style="font-size:12.5px;color:var(--ink2);line-height:1.5;margin-bottom:10px">Каждый вопрос с новой строки. Формат:<br><code style="font-size:11px">билет;номер;тема;картинка;вопрос_рус;вопрос_узб;вар_рус;вар_узб;правильный;объяс_рус;объяс_узб</code></p>'
+    +'<textarea id="aqBulk" style="width:100%;min-height:100px;padding:12px;border:1.5px solid var(--line);border-radius:12px;font-family:monospace;font-size:12px;background:var(--bg);color:var(--ink)" placeholder="4;7;Знаки;;Вопрос?;Savol?;А|Б|В;A|B|V;2;Объяснение;Izoh"></textarea>'
+    +'<button class="btn-ghost" style="margin-top:10px" onclick="adminBulkQ()">Загрузить пакетом</button>'
+    +'</div>';
+  el.innerHTML=html;
+}
+function adminSaveQ(){
+  var rec={
+    ticket:parseInt(val('aqTicket'))||0,
+    num:parseInt(val('aqNum'))||0,
+    topic:val('aqTopic'),
+    image_url:val('aqImg'),
+    question_ru:val('aqQru'),
+    question_uz:val('aqQuz'),
+    options_ru:val('aqOru'),
+    options_uz:val('aqOuz'),
+    correct_index:(parseInt(val('aqCor'))||1)-1,
+    explain_ru:val('aqEru'),
+    explain_uz:val('aqEuz')
+  };
+  if(!rec.ticket||!rec.question_ru||!rec.options_ru){showErr('aqErr','Заполни билет, вопрос и варианты');return;}
+  if(rec.correct_index<0){showErr('aqErr','Правильный ответ — номер с 1');return;}
+  sbPost('questions',rec).then(function(r){
+    if(r){toast('✅ Вопрос добавлен');renderAdminAdd(document.getElementById('adminBody'));loadQuestions();}
+    else showErr('aqErr','Ошибка сохранения');
+  });
+}
+function adminBulkQ(){
+  var raw=val('aqBulk');
+  if(!raw){toast('Вставь вопросы');return;}
+  var lines=raw.split('\n').filter(function(l){return l.trim();});
+  var recs=[];
+  lines.forEach(function(l){
+    var p=l.split(';');
+    if(p.length<9)return;
+    recs.push({
+      ticket:parseInt(p[0])||0,num:parseInt(p[1])||0,topic:(p[2]||'').trim(),
+      image_url:(p[3]||'').trim(),question_ru:(p[4]||'').trim(),question_uz:(p[5]||'').trim(),
+      options_ru:(p[6]||'').trim(),options_uz:(p[7]||'').trim(),
+      correct_index:(parseInt(p[8])||1)-1,explain_ru:(p[9]||'').trim(),explain_uz:(p[10]||'').trim()
+    });
+  });
+  if(!recs.length){toast('Не распознано. Проверь формат');return;}
+  sbPost('questions',recs).then(function(r){
+    if(r){toast('✅ Загружено: '+recs.length);loadQuestions();renderAdminAdd(document.getElementById('adminBody'));}
+    else toast('Ошибка загрузки');
+  });
+}
+
+// --- Список вопросов ---
+function renderAdminList(el){
+  el.innerHTML='<div style="padding:20px;text-align:center;color:var(--ink3)">Загрузка...</div>';
+  sbGet('questions','select=id,ticket,num,question_ru&order=ticket.asc,num.asc&limit=2000').then(function(rows){
+    rows=rows||[];
+    window._adminQs=rows;
+    renderAdminListFiltered('');
+  });
+}
+function renderAdminListFiltered(query){
+  var el=document.getElementById('adminBody');
+  if(!el)return;
+  var rows=window._adminQs||[];
+  var q=(query||'').toLowerCase().trim();
+  var filtered=q?rows.filter(function(r){return (r.question_ru||'').toLowerCase().indexOf(q)>=0||('б'+r.ticket)===q||String(r.ticket)===q;}):rows;
+  var html='<div class="field" style="margin-bottom:12px"><input id="admSearch" placeholder="🔍 Поиск по вопросу или номеру билета..." value="'+esc(query)+'" oninput="renderAdminListFiltered(this.value)" style="background:var(--card)"></div>';
+  html+='<div style="font-size:13px;color:var(--ink2);margin-bottom:12px">Найдено: '+filtered.length+' из '+rows.length+'</div>';
+  if(!filtered.length){html+='<p style="color:var(--ink3)">'+(q?'Ничего не найдено':'Вопросов пока нет. Добавь через вкладку «Добавить».')+'</p>';}
+  filtered.slice(0,300).forEach(function(qq){
+    html+='<div class="weak" style="align-items:center"><span class="we" style="font-size:13px;font-weight:800;color:var(--green)">Б'+qq.ticket+'</span><div class="winfo"><div class="wn" style="font-size:13px">'+esc(qq.question_ru)+'</div></div><span onclick="adminDelQ('+qq.id+')" style="color:var(--red);cursor:pointer;font-size:18px">🗑</span></div>';
+  });
+  el.innerHTML=html;
+  // вернуть фокус в поиск
+  var si=document.getElementById('admSearch');if(si&&query){si.focus();si.setSelectionRange(query.length,query.length);}
+}
+function adminDelQ(id){
+  if(!confirm('Удалить вопрос?'))return;
+  fetch(SB_URL+'/rest/v1/questions?id=eq.'+id,{method:'DELETE',headers:SBH}).then(function(){toast('Удалён');renderAdminList(document.getElementById('adminBody'));loadQuestions();});
+}
+
+// --- Сложные вопросы ---
+function renderAdminStats(el){
+  el.innerHTML='<div style="padding:20px;text-align:center;color:var(--ink3)">Анализ...</div>';
+  sbRpc('hard_questions',{}).then(function(rows){
+    rows=rows||[];
+    if(!rows.length){el.innerHTML='<p style="color:var(--ink3);padding:10px">Пока мало данных. Статистика появится когда студенты порешают вопросы.</p>';return;}
+    var html='<div style="font-size:13px;color:var(--ink2);margin-bottom:12px">Вопросы которые чаще всего проваливают:</div>';
+    var qmap={};S.questions.forEach(function(q){qmap[q.id]=q;});
+    rows.forEach(function(r){
+      var q=qmap[r.question_id];
+      var txt=q?q.question_ru:('Вопрос #'+r.question_id);
+      var col=r.wrong_pct>=70?'var(--red)':r.wrong_pct>=50?'var(--amber)':'var(--green)';
+      html+='<div class="weak"><span class="we">'+(r.wrong_pct>=70?'🔴':'🟡')+'</span><div class="winfo"><div class="wn" style="font-size:13px">'+esc(txt)+'</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">'+r.wrong+' из '+r.total+' ошиблись</div></div><span class="wpc" style="color:'+col+'">'+r.wrong_pct+'%</span></div>';
+    });
+    el.innerHTML=html;
+  });
+}
+
+// ===== ИНИЦИАЛИЗАЦИЯ =====
+async function init(){
+  load();applyTheme();tgInit();
+  // проверка подключения к базе
+  try{
+    var test=await sbGet('app_config','limit=1');
+    S.dbOK=Array.isArray(test);
+  }catch(e){S.dbOK=false;}
+  // авто-вход телеграм
+  if(TG_USER&&!S.user&&S.dbOK){try{await tgAutoLogin();}catch(e){}}
+  // загрузка данных
+  if(S.dbOK){try{await loadAll();}catch(e){}}
+  document.getElementById('loading').classList.add('hidden');
+  go('home');
+}
+window.addEventListener('DOMContentLoaded',init);
+
+</script>
+</body>
+</html>
