@@ -338,7 +338,7 @@ function isTG(){return !!TG;}
 
 // --- Supabase helpers ---
 function sbGet(t,q){return fetch(SB_URL+'/rest/v1/'+t+'?'+(q||''),{headers:SBH}).then(function(r){return r.ok?r.json():[];});}
-function sbPost(t,b){return fetch(SB_URL+'/rest/v1/'+t,{method:'POST',headers:SBH,body:JSON.stringify(b)}).then(function(r){return r.ok?r.json():null;});}
+function sbPost(t,b){return fetch(SB_URL+'/rest/v1/'+t,{method:'POST',headers:SBH,body:JSON.stringify(b)}).then(function(r){if(r.ok)return r.json();return r.text().then(function(txt){console.error('sbPost '+t+' error '+r.status+':',txt);window._lastSbErr=r.status+': '+txt;return null;});});}
 function sbPatch(t,q,b){return fetch(SB_URL+'/rest/v1/'+t+'?'+q,{method:'PATCH',headers:SBH,body:JSON.stringify(b)}).then(function(r){return r.ok;});}
 function sbRpc(fn,p){return fetch(SB_URL+'/rest/v1/rpc/'+fn,{method:'POST',headers:SBH,body:JSON.stringify(p||{})}).then(function(r){return r.ok?r.json():null;});}
 
@@ -876,7 +876,8 @@ function doRegister(){
     if(rows&&rows.length){showErr('rgErr','❌ Email уже занят');return;}
     var newU={email:em,password:pw,name:nm,lang:S.lang,status:'active',role:'student'};
     if(isTG()&&TG_USER){newU.tg_id=String(TG_USER.id);newU.tg_chat_id=String(TG_USER.id);}
-    sbPost('users',newU).then(function(){
+    sbPost('users',newU).then(function(res){
+      if(!res){showErr('rgErr','Ошибка сохранения: '+(window._lastSbErr||'проверь RLS в Supabase'));return;}
       setUser(newU);closeModal();
       loadAll().then(function(){go('home');});
       toast('Аккаунт создан!');
