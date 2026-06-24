@@ -505,6 +505,14 @@ var BANNERS=[
   {bg:'linear-gradient(135deg,#7c6cff,#5a4fd0)',emoji:'⚔️',ru:{h:'Зови друзей на дуэль',p:'Кто знает ПДД лучше?'},uz:{h:'Doʻstlarni bellashuv',p:'Kim YHQni yaxshi biladi?'}},
   {bg:'linear-gradient(135deg,#ff9d0a,#e8500f)',emoji:'⭐',ru:{h:'Yoʻl Premium',p:'Все билеты · без рекламы'},uz:{h:'Yoʻl Premium',p:'Barcha biletlar · reklamasiz'}}
 ];
+function loadBanners(){
+  if(!S.dbOK)return Promise.resolve();
+  return sbGet('banners','active=eq.true&select=*&order=sort_order.asc').then(function(rows){
+    if(rows&&rows.length){
+      BANNERS=rows.map(function(b){return {bg:b.color,emoji:b.emoji,ru:{h:b.title_ru,p:b.subtitle_ru},uz:{h:b.title_uz||b.title_ru,p:b.subtitle_uz||b.subtitle_ru}};});
+    }
+  }).catch(function(){});
+}
 function renderCarousel(){
   var html='<div class="carousel"><div class="carousel-track" id="carTrack">';
   BANNERS.forEach(function(b){
@@ -929,6 +937,7 @@ function loadAll(){
   var tasks=[];
   // вопросы (постранично, обход лимита 1000)
   tasks.push(loadQuestions());
+  tasks.push(loadBanners());
   // прогресс пользователя
   if(S.user)tasks.push(sbGet('progress','user_email=eq.'+encodeURIComponent(S.user.email)+'&select=question_id,correct').then(function(rows){
     (rows||[]).forEach(function(p){S.progress[p.question_id]={correct:p.correct};});
@@ -1337,139 +1346,259 @@ function doAdminLogin(){
   });
 }
 
-var ADMIN_TAB='add';
+var ADMIN_TAB='dash';
 function renderAdmin(app){
   if(!S.user||S.user.role!=='admin'){app.innerHTML='<div class="h1">Доступ закрыт</div><button class="btn-ghost" onclick="go(\'profile\')">Назад</button>';return;}
-  var html='<div class="qhead"><div class="back" onclick="go(\'profile\')">←</div><div class="qtitle">🛡️ Админка<span>Управление</span></div></div>';
-  html+='<div class="tabs"><button class="'+(ADMIN_TAB==='add'?'on':'')+'" onclick="setAdminTab(\'add\')">Добавить</button><button class="'+(ADMIN_TAB==='list'?'on':'')+'" onclick="setAdminTab(\'list\')">Вопросы</button><button class="'+(ADMIN_TAB==='stats'?'on':'')+'" onclick="setAdminTab(\'stats\')">Сложные</button></div>';
-  html+='<div id="adminBody"></div>';
+  var tabs=[['dash','📊'],['questions','📝'],['banners','🖼️'],['users','👥'],['analytics','📈'],['broadcast','📢'],['settings','⚙️']];
+  var html='<div class="qhead"><div class="back" onclick="go(\'profile\')">←</div><div class="qtitle">🛡️ Админка<span>Управление Yoʻl</span></div></div>';
+  html+='<div style="display:flex;gap:7px;overflow-x:auto;padding-bottom:8px;margin-bottom:14px;-ms-overflow-style:none;scrollbar-width:none">';
+  tabs.forEach(function(tb){
+    html+='<button onclick="setAdminTab(\''+tb[0]+'\')" style="flex-shrink:0;border:none;background:'+(ADMIN_TAB===tb[0]?'var(--green)':'var(--card)')+';color:'+(ADMIN_TAB===tb[0]?'#fff':'var(--ink2)')+';font-family:var(--f);font-size:13px;font-weight:700;padding:9px 15px;border-radius:12px;cursor:pointer;box-shadow:0 4px 14px -10px rgba(15,31,24,.2)">'+tb[1]+'</button>';
+  });
+  html+='</div><div id="adminBody"></div>';
   app.innerHTML=html;
   renderAdminBody();
 }
-function setAdminTab(tab){ADMIN_TAB=tab;renderAdminBody();}
+function setAdminTab(tab){ADMIN_TAB=tab;renderAdmin(document.getElementById('app'));}
 function renderAdminBody(){
   var el=document.getElementById('adminBody');
   if(!el)return;
-  if(ADMIN_TAB==='add')renderAdminAdd(el);
-  else if(ADMIN_TAB==='list')renderAdminList(el);
-  else if(ADMIN_TAB==='stats')renderAdminStats(el);
+  if(ADMIN_TAB==='dash')renderAdminDash(el);
+  else if(ADMIN_TAB==='questions')renderAdminQuestions(el);
+  else if(ADMIN_TAB==='banners')renderAdminBanners(el);
+  else if(ADMIN_TAB==='users')renderAdminUsers(el);
+  else if(ADMIN_TAB==='analytics')renderAdminAnalytics(el);
+  else if(ADMIN_TAB==='broadcast')renderAdminBroadcast(el);
+  else if(ADMIN_TAB==='settings')renderAdminSettings(el);
 }
 
-// --- Добавление вопроса (с картинкой + ИИ-объяснение) ---
-function renderAdminAdd(el){
-  var html='<div class="qcard" style="padding:16px">'
-    +'<div class="field"><label>Билет (1-62)</label><input id="aqTicket" type="number" placeholder="4"></div>'
-    +'<div class="field"><label>Номер вопроса (1-20)</label><input id="aqNum" type="number" placeholder="7"></div>'
+// ===== ДАШБОРД =====
+function renderAdminDash(el){
+  el.innerHTML='<div style="padding:20px;text-align:center;color:var(--ink3)">Загрузка...</div>';
+  Promise.all([
+    sbGet('questions','select=id'),
+    sbGet('users','select=email,is_premium,tg_chat_id'),
+    sbGet('exam_results','select=id,passed'),
+    sbGet('duels','select=id,status')
+  ]).then(function(r){
+    var qs=r[0]||[],users=r[1]||[],exams=r[2]||[],duels=r[3]||[];
+    var prem=users.filter(function(u){return u.is_premium;}).length;
+    var tgConn=users.filter(function(u){return u.tg_chat_id&&String(u.tg_chat_id).trim();}).length;
+    var passed=exams.filter(function(e){return e.passed;}).length;
+    var html='<div class="stat-grid">';
+    html+='<div class="sc"><span class="ic">📝</span><b>'+qs.length+'</b><span>вопросов</span></div>';
+    html+='<div class="sc"><span class="ic">👥</span><b>'+users.length+'</b><span>пользователей</span></div>';
+    html+='<div class="sc"><span class="ic">⭐</span><b>'+prem+'</b><span>премиум</span></div>';
+    html+='<div class="sc"><span class="ic">🔔</span><b>'+tgConn+'</b><span>в Telegram</span></div>';
+    html+='<div class="sc"><span class="ic">🎓</span><b>'+exams.length+'</b><span>экзаменов</span></div>';
+    html+='<div class="sc"><span class="ic">⚔️</span><b>'+duels.length+'</b><span>дуэлей</span></div>';
+    html+='</div>';
+    // процент сдачи
+    var passPct=exams.length?Math.round(passed/exams.length*100):0;
+    html+='<div class="ring-card" style="margin-top:4px"><div class="ring"><svg width="110" height="110" viewBox="0 0 110 110"><circle cx="55" cy="55" r="48" fill="none" stroke="var(--line)" stroke-width="10"/><circle cx="55" cy="55" r="48" fill="none" stroke="var(--green)" stroke-width="10" stroke-linecap="round" stroke-dasharray="301.6" stroke-dashoffset="'+(301.6*(1-passPct/100))+'"/></svg><div class="center"><b>'+passPct+'%</b><span>сдача</span></div></div><div class="ring-info"><b>Процент сдачи экзаменов</b><p>'+passed+' из '+exams.length+' экзаменов сдано успешно.</p></div></div>';
+    el.innerHTML=html;
+  });
+}
+
+// ===== ВОПРОСЫ =====
+var QTAB='add';
+function renderAdminQuestions(el){
+  var html='<div class="tabs"><button class="'+(QTAB==='add'?'on':'')+'" onclick="setQTab(\'add\')">Добавить</button><button class="'+(QTAB==='list'?'on':'')+'" onclick="setQTab(\'list\')">Список</button><button class="'+(QTAB==='bulk'?'on':'')+'" onclick="setQTab(\'bulk\')">Массово</button></div><div id="qTabBody"></div>';
+  el.innerHTML=html;
+  renderQTab();
+}
+function setQTab(t){QTAB=t;renderQTab();}
+function renderQTab(){
+  var el=document.getElementById('qTabBody');if(!el)return;
+  if(QTAB==='add')renderQAdd(el);else if(QTAB==='list')renderQList(el);else renderQBulk(el);
+}
+function renderQAdd(el){
+  el.innerHTML='<div class="qcard" style="padding:16px">'
+    +'<div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Билет</label><input id="aqTicket" type="number" placeholder="4"></div><div class="field" style="flex:1"><label>№ вопроса</label><input id="aqNum" type="number" placeholder="7"></div></div>'
     +'<div class="field"><label>Тема</label><input id="aqTopic" placeholder="Знаки приоритета"></div>'
-    +'<div class="field"><label>Ссылка на картинку (необязательно)</label><input id="aqImg" placeholder="https://..."></div>'
+    +'<div class="field"><label>Картинка (ссылка)</label><input id="aqImg" placeholder="https://..."></div>'
     +'<div class="field"><label>Вопрос (рус)</label><input id="aqQru" placeholder="Что означает знак?"></div>'
     +'<div class="field"><label>Вопрос (узб)</label><input id="aqQuz" placeholder="Belgi nimani anglatadi?"></div>'
-    +'<div class="field"><label>Варианты рус (через |)</label><input id="aqOru" placeholder="Вариант А|Вариант Б|Вариант В"></div>'
-    +'<div class="field"><label>Варианты узб (через |)</label><input id="aqOuz" placeholder="A variant|B variant|V variant"></div>'
+    +'<div class="field"><label>Варианты рус (через |)</label><input id="aqOru" placeholder="А|Б|В"></div>'
+    +'<div class="field"><label>Варианты узб (через |)</label><input id="aqOuz" placeholder="A|B|V"></div>'
     +'<div class="field"><label>Правильный (номер с 1)</label><input id="aqCor" type="number" placeholder="2"></div>'
-    +'<div class="field"><label>Объяснение рус</label><input id="aqEru" placeholder="Почему этот ответ..."></div>'
-    +'<div class="field"><label>Объяснение узб</label><input id="aqEuz" placeholder="Nega bu javob..."></div>'
+    +'<div class="field"><label>Объяснение рус</label><input id="aqEru" placeholder="Почему..."></div>'
+    +'<div class="field"><label>Объяснение узб</label><input id="aqEuz" placeholder="Nega..."></div>'
     +'<div class="ferr" id="aqErr"></div>'
-    +'<button class="btn-main" onclick="adminSaveQ()">💾 Сохранить вопрос</button>'
-    +'</div>'
-    +'<div class="qcard" style="padding:16px;margin-top:12px">'
-    +'<div style="font-size:14px;font-weight:800;margin-bottom:6px">📥 Массовая загрузка</div>'
-    +'<p style="font-size:12.5px;color:var(--ink2);line-height:1.5;margin-bottom:10px">Каждый вопрос с новой строки. Формат:<br><code style="font-size:11px">билет;номер;тема;картинка;вопрос_рус;вопрос_узб;вар_рус;вар_узб;правильный;объяс_рус;объяс_узб</code></p>'
-    +'<textarea id="aqBulk" style="width:100%;min-height:100px;padding:12px;border:1.5px solid var(--line);border-radius:12px;font-family:monospace;font-size:12px;background:var(--bg);color:var(--ink)" placeholder="4;7;Знаки;;Вопрос?;Savol?;А|Б|В;A|B|V;2;Объяснение;Izoh"></textarea>'
-    +'<button class="btn-ghost" style="margin-top:10px" onclick="adminBulkQ()">Загрузить пакетом</button>'
-    +'</div>';
-  el.innerHTML=html;
+    +'<button class="btn-main" onclick="adminSaveQ()">💾 Сохранить</button></div>';
 }
 function adminSaveQ(){
-  var rec={
-    ticket:parseInt(val('aqTicket'))||0,
-    num:parseInt(val('aqNum'))||0,
-    topic:val('aqTopic'),
-    image_url:val('aqImg'),
-    question_ru:val('aqQru'),
-    question_uz:val('aqQuz'),
-    options_ru:val('aqOru'),
-    options_uz:val('aqOuz'),
-    correct_index:(parseInt(val('aqCor'))||1)-1,
-    explain_ru:val('aqEru'),
-    explain_uz:val('aqEuz')
-  };
+  var rec={ticket:parseInt(val('aqTicket'))||0,num:parseInt(val('aqNum'))||0,topic:val('aqTopic'),image_url:val('aqImg'),question_ru:val('aqQru'),question_uz:val('aqQuz'),options_ru:val('aqOru'),options_uz:val('aqOuz'),correct_index:(parseInt(val('aqCor'))||1)-1,explain_ru:val('aqEru'),explain_uz:val('aqEuz')};
   if(!rec.ticket||!rec.question_ru||!rec.options_ru){showErr('aqErr','Заполни билет, вопрос и варианты');return;}
-  if(rec.correct_index<0){showErr('aqErr','Правильный ответ — номер с 1');return;}
-  sbPost('questions',rec).then(function(r){
-    if(r){toast('✅ Вопрос добавлен');renderAdminAdd(document.getElementById('adminBody'));loadQuestions();}
-    else showErr('aqErr','Ошибка сохранения');
-  });
+  sbPost('questions',rec).then(function(r){if(r){toast('✅ Добавлен');renderQAdd(document.getElementById('qTabBody'));loadQuestions();}else showErr('aqErr','Ошибка: '+(window._lastSbErr||''));});
+}
+function renderQBulk(el){
+  el.innerHTML='<div class="qcard" style="padding:16px"><div style="font-size:14px;font-weight:800;margin-bottom:6px">📥 Массовая загрузка</div>'
+    +'<p style="font-size:12px;color:var(--ink2);line-height:1.5;margin-bottom:10px">Каждый вопрос с новой строки. Поля через <b>;</b>:<br><code style="font-size:10.5px">билет;номер;тема;картинка;вопрос_ру;вопрос_уз;вар_ру;вар_уз;правильный;объяс_ру;объяс_уз</code></p>'
+    +'<textarea id="aqBulk" style="width:100%;min-height:120px;padding:12px;border:1.5px solid var(--line);border-radius:12px;font-family:monospace;font-size:12px;background:var(--bg);color:var(--ink)" placeholder="4;7;Знаки;;Вопрос?;Savol?;А|Б|В;A|B|V;2;Объяснение;Izoh"></textarea>'
+    +'<div class="ferr" id="bulkErr"></div>'
+    +'<button class="btn-main" style="margin-top:10px" onclick="adminBulkQ()">Загрузить пакетом</button></div>';
 }
 function adminBulkQ(){
-  var raw=val('aqBulk');
-  if(!raw){toast('Вставь вопросы');return;}
+  var raw=val('aqBulk');if(!raw){toast('Вставь вопросы');return;}
   var lines=raw.split('\n').filter(function(l){return l.trim();});
   var recs=[];
-  lines.forEach(function(l){
-    var p=l.split(';');
-    if(p.length<9)return;
-    recs.push({
-      ticket:parseInt(p[0])||0,num:parseInt(p[1])||0,topic:(p[2]||'').trim(),
-      image_url:(p[3]||'').trim(),question_ru:(p[4]||'').trim(),question_uz:(p[5]||'').trim(),
-      options_ru:(p[6]||'').trim(),options_uz:(p[7]||'').trim(),
-      correct_index:(parseInt(p[8])||1)-1,explain_ru:(p[9]||'').trim(),explain_uz:(p[10]||'').trim()
-    });
-  });
-  if(!recs.length){toast('Не распознано. Проверь формат');return;}
-  sbPost('questions',recs).then(function(r){
-    if(r){toast('✅ Загружено: '+recs.length);loadQuestions();renderAdminAdd(document.getElementById('adminBody'));}
-    else toast('Ошибка загрузки');
-  });
+  lines.forEach(function(l){var p=l.split(';');if(p.length<9)return;recs.push({ticket:parseInt(p[0])||0,num:parseInt(p[1])||0,topic:(p[2]||'').trim(),image_url:(p[3]||'').trim(),question_ru:(p[4]||'').trim(),question_uz:(p[5]||'').trim(),options_ru:(p[6]||'').trim(),options_uz:(p[7]||'').trim(),correct_index:(parseInt(p[8])||1)-1,explain_ru:(p[9]||'').trim(),explain_uz:(p[10]||'').trim()});});
+  if(!recs.length){showErr('bulkErr','Не распознано. Проверь формат');return;}
+  sbPost('questions',recs).then(function(r){if(r){toast('✅ Загружено: '+recs.length);loadQuestions();renderQBulk(document.getElementById('qTabBody'));}else showErr('bulkErr','Ошибка загрузки');});
 }
-
-// --- Список вопросов ---
-function renderAdminList(el){
+function renderQList(el){
   el.innerHTML='<div style="padding:20px;text-align:center;color:var(--ink3)">Загрузка...</div>';
-  sbGet('questions','select=id,ticket,num,question_ru&order=ticket.asc,num.asc&limit=2000').then(function(rows){
+  sbGet('questions','select=id,ticket,num,question_ru,topic&order=ticket.asc,num.asc&limit=2000').then(function(rows){window._adminQs=rows||[];qListFiltered('');});
+}
+function qListFiltered(query){
+  var el=document.getElementById('qTabBody');if(!el)return;
+  var rows=window._adminQs||[];var q=(query||'').toLowerCase().trim();
+  var filtered=q?rows.filter(function(r){return (r.question_ru||'').toLowerCase().indexOf(q)>=0||String(r.ticket)===q;}):rows;
+  var html='<div class="field" style="margin-bottom:12px"><input id="qSearch" placeholder="🔍 Поиск по вопросу или билету" value="'+esc(query)+'" oninput="qListFiltered(this.value)" style="background:var(--card)"></div>';
+  html+='<div style="font-size:13px;color:var(--ink2);margin-bottom:12px">Найдено: '+filtered.length+' из '+rows.length+'</div>';
+  if(!filtered.length)html+='<p style="color:var(--ink3)">'+(q?'Ничего не найдено':'Вопросов нет')+'</p>';
+  filtered.slice(0,300).forEach(function(qq){html+='<div class="weak" style="align-items:center"><span class="we" style="font-size:12px;font-weight:800;color:var(--green)">Б'+qq.ticket+'</span><div class="winfo"><div class="wn" style="font-size:13px">'+esc(qq.question_ru)+'</div></div><span onclick="adminDelQ('+qq.id+')" style="color:var(--red);cursor:pointer;font-size:17px">🗑</span></div>';});
+  el.innerHTML=html;
+  var si=document.getElementById('qSearch');if(si&&query){si.focus();si.setSelectionRange(query.length,query.length);}
+}
+function adminDelQ(id){if(!confirm('Удалить вопрос?'))return;fetch(SB_URL+'/rest/v1/questions?id=eq.'+id,{method:'DELETE',headers:SBH}).then(function(){toast('Удалён');window._adminQs=(window._adminQs||[]).filter(function(q){return q.id!==id;});qListFiltered('');loadQuestions();});}
+
+// ===== БАННЕРЫ =====
+function renderAdminBanners(el){
+  el.innerHTML='<div style="padding:20px;text-align:center;color:var(--ink3)">Загрузка...</div>';
+  sbGet('banners','select=*&order=sort_order.asc').then(function(rows){
     rows=rows||[];
-    window._adminQs=rows;
-    renderAdminListFiltered('');
+    var html='<button class="btn-main" style="margin-bottom:14px" onclick="bannerEdit(0)">+ Новый баннер</button>';
+    if(!rows.length)html+='<p style="color:var(--ink3)">Баннеров нет. Добавь первый.</p>';
+    rows.forEach(function(b){
+      html+='<div class="cbanner" style="background:'+b.color+';margin-bottom:10px;border-radius:16px;cursor:pointer" onclick="bannerEdit('+b.id+')"><div class="cb-glow"></div><div class="cb-txt"><h4>'+esc(b.title_ru)+'</h4><p>'+esc(b.subtitle_ru)+'</p></div><div class="cb-emoji">'+b.emoji+'</div></div>';
+      html+='<div style="display:flex;gap:8px;margin:-4px 0 12px"><button class="btn-ghost" style="padding:7px;font-size:12px" onclick="bannerEdit('+b.id+')">✏️ Изменить</button><button class="btn-ghost" style="padding:7px;font-size:12px;color:var(--red)" onclick="bannerDel('+b.id+')">🗑 Удалить</button></div>';
+    });
+    window._banners=rows;
+    el.innerHTML=html;
   });
 }
-function renderAdminListFiltered(query){
-  var el=document.getElementById('adminBody');
-  if(!el)return;
-  var rows=window._adminQs||[];
-  var q=(query||'').toLowerCase().trim();
-  var filtered=q?rows.filter(function(r){return (r.question_ru||'').toLowerCase().indexOf(q)>=0||('б'+r.ticket)===q||String(r.ticket)===q;}):rows;
-  var html='<div class="field" style="margin-bottom:12px"><input id="admSearch" placeholder="🔍 Поиск по вопросу или номеру билета..." value="'+esc(query)+'" oninput="renderAdminListFiltered(this.value)" style="background:var(--card)"></div>';
-  html+='<div style="font-size:13px;color:var(--ink2);margin-bottom:12px">Найдено: '+filtered.length+' из '+rows.length+'</div>';
-  if(!filtered.length){html+='<p style="color:var(--ink3)">'+(q?'Ничего не найдено':'Вопросов пока нет. Добавь через вкладку «Добавить».')+'</p>';}
-  filtered.slice(0,300).forEach(function(qq){
-    html+='<div class="weak" style="align-items:center"><span class="we" style="font-size:13px;font-weight:800;color:var(--green)">Б'+qq.ticket+'</span><div class="winfo"><div class="wn" style="font-size:13px">'+esc(qq.question_ru)+'</div></div><span onclick="adminDelQ('+qq.id+')" style="color:var(--red);cursor:pointer;font-size:18px">🗑</span></div>';
+function bannerEdit(id){
+  var b=id?(window._banners||[]).find(function(x){return x.id===id;}):{title_ru:'',title_uz:'',subtitle_ru:'',subtitle_uz:'',emoji:'🚗',color:'linear-gradient(135deg,#00b86b,#03704c)'};
+  if(!b)return;
+  var colors=[['Зелёный','linear-gradient(135deg,#00b86b,#03704c)'],['Фиолетовый','linear-gradient(135deg,#7c6cff,#5a4fd0)'],['Оранжевый','linear-gradient(135deg,#ff9d0a,#e8500f)'],['Синий','linear-gradient(135deg,#2b6fff,#1857e0)'],['Розовый','linear-gradient(135deg,#ff4259,#c4193a)']];
+  var html='<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal" style="max-height:85vh;overflow-y:auto">'
+    +'<h2>'+(id?'Изменить баннер':'Новый баннер')+'</h2>'
+    +'<div class="field"><label>Заголовок (рус)</label><input id="bnTru" value="'+esc(b.title_ru)+'"></div>'
+    +'<div class="field"><label>Заголовок (узб)</label><input id="bnTuz" value="'+esc(b.title_uz)+'"></div>'
+    +'<div class="field"><label>Подпись (рус)</label><input id="bnSru" value="'+esc(b.subtitle_ru)+'"></div>'
+    +'<div class="field"><label>Подпись (узб)</label><input id="bnSuz" value="'+esc(b.subtitle_uz)+'"></div>'
+    +'<div class="field"><label>Эмодзи</label><input id="bnEm" value="'+esc(b.emoji)+'" placeholder="🚗"></div>'
+    +'<div class="field"><label>Цвет</label><select id="bnCol">';
+  colors.forEach(function(c){html+='<option value="'+c[1]+'"'+(b.color===c[1]?' selected':'')+'>'+c[0]+'</option>';});
+  html+='</select></div>'
+    +'<button class="btn-main" onclick="bannerSave('+(id||0)+')">Сохранить</button></div></div>';
+  document.getElementById('modalRoot').innerHTML=html;
+}
+function bannerSave(id){
+  var rec={title_ru:val('bnTru'),title_uz:val('bnTuz'),subtitle_ru:val('bnSru'),subtitle_uz:val('bnSuz'),emoji:val('bnEm')||'🚗',color:document.getElementById('bnCol').value,active:true};
+  if(id){sbPatch('banners','id=eq.'+id,rec).then(function(){toast('Сохранено');closeModal();renderAdminBanners(document.getElementById('adminBody'));});}
+  else{rec.sort_order=Date.now()%100000;sbPost('banners',rec).then(function(){toast('Добавлен');closeModal();renderAdminBanners(document.getElementById('adminBody'));});}
+}
+function bannerDel(id){if(!confirm('Удалить баннер?'))return;fetch(SB_URL+'/rest/v1/banners?id=eq.'+id,{method:'DELETE',headers:SBH}).then(function(){toast('Удалён');renderAdminBanners(document.getElementById('adminBody'));});}
+
+// ===== ПОЛЬЗОВАТЕЛИ =====
+function renderAdminUsers(el){
+  el.innerHTML='<div style="padding:20px;text-align:center;color:var(--ink3)">Загрузка...</div>';
+  sbGet('users','select=email,name,is_premium,status,role&order=created_at.desc&limit=300').then(function(rows){window._adminUsers=rows||[];usersFiltered('');});
+}
+function usersFiltered(query){
+  var el=document.getElementById('adminBody');if(!el)return;
+  var rows=window._adminUsers||[];var q=(query||'').toLowerCase().trim();
+  var filtered=q?rows.filter(function(u){return (u.name||'').toLowerCase().indexOf(q)>=0||(u.email||'').toLowerCase().indexOf(q)>=0;}):rows;
+  var html='<div class="field" style="margin-bottom:12px"><input id="uSearch" placeholder="🔍 Поиск по имени или email" value="'+esc(query)+'" oninput="usersFiltered(this.value)" style="background:var(--card)"></div>';
+  html+='<div style="font-size:13px;color:var(--ink2);margin-bottom:12px">Всего: '+rows.length+'</div>';
+  filtered.slice(0,200).forEach(function(u){
+    var badge=u.role==='admin'?'<span style="font-size:10px;background:var(--green);color:#fff;padding:2px 6px;border-radius:6px">админ</span>':u.is_premium?'<span style="font-size:10px;background:var(--amber);color:#fff;padding:2px 6px;border-radius:6px">⭐</span>':'';
+    var blocked=u.status==='blocked';
+    html+='<div class="weak" style="align-items:center"><div class="rav" style="width:34px;height:34px;background:'+avColor(u.name)+'">'+initial(u.name)+'</div><div class="winfo"><div class="wn" style="font-size:13px">'+esc(u.name||'?')+' '+badge+'</div><div style="font-size:11px;color:var(--ink3)">'+esc((u.email||'').split("@")[0])+'</div></div>'
+      +'<button onclick="toggleUserPremium(\''+esc(u.email)+'\','+(u.is_premium?'false':'true')+')" style="border:none;background:var(--bg);padding:6px 8px;border-radius:8px;cursor:pointer;font-size:14px" title="Премиум">'+(u.is_premium?'⭐':'☆')+'</button>'
+      +'<button onclick="toggleUserBlock(\''+esc(u.email)+'\','+(blocked?'false':'true')+')" style="border:none;background:var(--bg);padding:6px 8px;border-radius:8px;cursor:pointer;font-size:14px;margin-left:4px" title="Блок">'+(blocked?'🔓':'🔒')+'</button></div>';
   });
   el.innerHTML=html;
-  // вернуть фокус в поиск
-  var si=document.getElementById('admSearch');if(si&&query){si.focus();si.setSelectionRange(query.length,query.length);}
+  var si=document.getElementById('uSearch');if(si&&query){si.focus();si.setSelectionRange(query.length,query.length);}
 }
-function adminDelQ(id){
-  if(!confirm('Удалить вопрос?'))return;
-  fetch(SB_URL+'/rest/v1/questions?id=eq.'+id,{method:'DELETE',headers:SBH}).then(function(){toast('Удалён');renderAdminList(document.getElementById('adminBody'));loadQuestions();});
+function toggleUserPremium(email,val2){
+  sbPatch('users','email=eq.'+encodeURIComponent(email),{is_premium:val2==='true'||val2===true}).then(function(){
+    toast('Премиум обновлён');
+    var u=(window._adminUsers||[]).find(function(x){return x.email===email;});if(u)u.is_premium=(val2==='true'||val2===true);
+    usersFiltered(val('uSearch')||'');
+  });
+}
+function toggleUserBlock(email,val2){
+  sbPatch('users','email=eq.'+encodeURIComponent(email),{status:(val2==='true'||val2===true)?'blocked':'active'}).then(function(){
+    toast('Статус обновлён');
+    var u=(window._adminUsers||[]).find(function(x){return x.email===email;});if(u)u.status=(val2==='true'||val2===true)?'blocked':'active';
+    usersFiltered(val('uSearch')||'');
+  });
 }
 
-// --- Сложные вопросы ---
-function renderAdminStats(el){
+// ===== АНАЛИТИКА =====
+function renderAdminAnalytics(el){
   el.innerHTML='<div style="padding:20px;text-align:center;color:var(--ink3)">Анализ...</div>';
   sbRpc('hard_questions',{}).then(function(rows){
     rows=rows||[];
-    if(!rows.length){el.innerHTML='<p style="color:var(--ink3);padding:10px">Пока мало данных. Статистика появится когда студенты порешают вопросы.</p>';return;}
-    var html='<div style="font-size:13px;color:var(--ink2);margin-bottom:12px">Вопросы которые чаще всего проваливают:</div>';
+    var html='<div class="sec">🔴 Сложные вопросы</div>';
+    if(!rows.length){html+='<p style="color:var(--ink3);font-size:13px">Пока мало данных. Появится когда студенты порешают.</p>';}
     var qmap={};S.questions.forEach(function(q){qmap[q.id]=q;});
     rows.forEach(function(r){
-      var q=qmap[r.question_id];
-      var txt=q?q.question_ru:('Вопрос #'+r.question_id);
+      var q=qmap[r.question_id];var txt=q?q.question_ru:('#'+r.question_id);
       var col=r.wrong_pct>=70?'var(--red)':r.wrong_pct>=50?'var(--amber)':'var(--green)';
       html+='<div class="weak"><span class="we">'+(r.wrong_pct>=70?'🔴':'🟡')+'</span><div class="winfo"><div class="wn" style="font-size:13px">'+esc(txt)+'</div><div style="font-size:11px;color:var(--ink3);margin-top:2px">'+r.wrong+' из '+r.total+' ошиблись</div></div><span class="wpc" style="color:'+col+'">'+r.wrong_pct+'%</span></div>';
     });
     el.innerHTML=html;
   });
 }
+
+// ===== РАССЫЛКА =====
+function renderAdminBroadcast(el){
+  el.innerHTML='<div class="qcard" style="padding:16px"><div style="font-size:15px;font-weight:800;margin-bottom:4px">📢 Рассылка в Telegram</div>'
+    +'<p style="font-size:12.5px;color:var(--ink2);line-height:1.5;margin-bottom:14px">Сообщение придёт всем у кого подключён Telegram. Доставку выполняет бот.</p>'
+    +'<div class="field"><label>Заголовок</label><input id="bcTitle" placeholder="Новость Yoʻl"></div>'
+    +'<div class="field"><label>Текст</label><textarea id="bcBody" style="width:100%;min-height:80px;padding:12px;border:1.5px solid var(--line);border-radius:12px;font-family:var(--f);font-size:14px;background:var(--bg);color:var(--ink)" placeholder="Текст сообщения..."></textarea></div>'
+    +'<div class="ferr" id="bcErr"></div>'
+    +'<button class="btn-main" onclick="sendBroadcast()">📨 Отправить всем</button></div>';
+}
+function sendBroadcast(){
+  var title=val('bcTitle'),body=val('bcBody');
+  if(!title){showErr('bcErr','Введите заголовок');return;}
+  sbPost('notifications_queue',{title:title,body:body,kind:'broadcast',sent:false}).then(function(r){
+    if(r){toast('✅ Рассылка поставлена в очередь');document.getElementById('bcTitle').value='';document.getElementById('bcBody').value='';}
+    else showErr('bcErr','Ошибка: '+(window._lastSbErr||'нужен бот'));
+  });
+}
+
+// ===== НАСТРОЙКИ =====
+function renderAdminSettings(el){
+  el.innerHTML='<div style="padding:16px;text-align:center;color:var(--ink3)">Загрузка...</div>';
+  sbGet('app_config','select=key,value').then(function(rows){
+    var cfg={};(rows||[]).forEach(function(r){cfg[r.key]=r.value;});
+    var html='<div class="qcard" style="padding:16px">'
+      +'<div class="field"><label>Цена премиума (сум)</label><input id="cfgPrice" value="'+esc(cfg.premium_price||'19900')+'"></div>'
+      +'<div class="field"><label>Бесплатный лимит вопросов/день</label><input id="cfgLimit" value="'+esc(cfg.free_daily_limit||'30')+'"></div>'
+      +'<button class="btn-main" onclick="saveSettings()">Сохранить настройки</button></div>'
+      +'<div class="qcard" style="padding:16px;margin-top:12px"><div style="font-size:14px;font-weight:800;margin-bottom:8px">🔑 Сменить пароль админа</div>'
+      +'<div class="field"><label>Новый пароль</label><input id="cfgPw" type="password" placeholder="новый пароль"></div>'
+      +'<button class="btn-ghost" onclick="saveAdminPw()">Сменить пароль</button></div>';
+    el.innerHTML=html;
+  });
+}
+function saveSettings(){
+  var price=val('cfgPrice'),limit=val('cfgLimit');
+  sbPatch('app_config','key=eq.premium_price',{value:price});
+  sbPatch('app_config','key=eq.free_daily_limit',{value:limit}).then(function(){toast('✅ Настройки сохранены');});
+}
+function saveAdminPw(){
+  var pw=val('cfgPw');if(!pw){toast('Введите пароль');return;}
+  sbPatch('app_config','key=eq.admin_password',{value:pw}).then(function(){toast('✅ Пароль изменён');document.getElementById('cfgPw').value='';});
+}
+
 
 // ===== ИНИЦИАЛИЗАЦИЯ =====
 async function init(){
