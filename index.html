@@ -21,8 +21,7 @@
 body{font-family:var(--f);background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;max-width:480px;margin:0 auto;position:relative;min-height:100vh;overflow-x:hidden;transition:background .3s}
 .app{padding:16px 17px 110px;min-height:100vh}
 /* Telegram fullscreen: отступ сверху под кнопки закрыть/свернуть */
-[data-tg] .app{padding-top:calc(16px + var(--tg-top,0px))}
-[data-tg-fs] .app{padding-top:calc(76px + var(--tg-top,0px))}
+[data-tg] .app{padding-top:calc(14px + var(--tg-top,0px))}
 .hidden{display:none !important}
 
 /* загрузка */
@@ -46,6 +45,32 @@ body{font-family:var(--f);background:var(--bg);color:var(--ink);-webkit-font-smo
 .btn-main{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:linear-gradient(135deg,#00b86b,#059862);color:#fff;font-size:16px;font-weight:800;padding:16px;border:none;border-radius:17px;cursor:pointer;font-family:var(--f);box-shadow:0 12px 28px -12px rgba(0,184,107,.6);transition:transform .15s}
 .btn-main:active{transform:scale(.98)}
 .btn-ghost{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:var(--card);color:var(--ink);font-size:15px;font-weight:700;padding:14px;border:1.5px solid var(--line);border-radius:15px;cursor:pointer;font-family:var(--f)}
+
+/* карусель-баннер */
+.carousel{position:relative;margin-bottom:16px;border-radius:20px;overflow:hidden}
+.carousel-track{display:flex;transition:transform .4s cubic-bezier(.4,0,.2,1)}
+.cbanner{min-width:100%;height:110px;border-radius:20px;display:flex;align-items:center;padding:0 22px;color:#fff;position:relative;overflow:hidden}
+.cbanner .cb-glow{position:absolute;top:-30px;right:-20px;width:130px;height:130px;background:rgba(255,255,255,.15);border-radius:50%}
+.cbanner .cb-txt{position:relative;z-index:1}
+.cbanner h4{font-size:17px;font-weight:800;letter-spacing:-.3px}
+.cbanner p{font-size:12.5px;opacity:.9;margin-top:3px}
+.cbanner .cb-emoji{font-size:40px;margin-left:auto;position:relative;z-index:1}
+.carousel-dots{display:flex;gap:6px;justify-content:center;position:absolute;bottom:10px;left:0;right:0;z-index:2}
+.carousel-dots i{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.5);transition:.2s}
+.carousel-dots i.on{background:#fff;width:18px;border-radius:99px}
+
+/* поиск (плавающая кнопка + панель) */
+.search-fab{position:fixed;bottom:90px;right:18px;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#00b86b,#059862);display:flex;align-items:center;justify-content:center;box-shadow:0 10px 26px -8px rgba(0,184,107,.55);z-index:45;cursor:pointer;border:none}
+.search-fab svg{width:24px;height:24px}
+.search-panel{position:fixed;inset:0;background:var(--bg);z-index:500;padding:16px 17px;overflow-y:auto;display:none}
+.search-panel.open{display:block}
+.search-head{display:flex;align-items:center;gap:11px;margin-bottom:16px}
+.search-head input{flex:1;padding:13px 16px;border:1.5px solid var(--line);border-radius:14px;font-family:var(--f);font-size:15px;font-weight:600;background:var(--card);color:var(--ink)}
+.search-head input:focus{outline:none;border-color:var(--green)}
+.search-res{display:flex;flex-direction:column;gap:9px}
+.sr-item{background:var(--card);border-radius:14px;padding:14px;box-shadow:0 6px 18px -14px rgba(15,31,24,.16);cursor:pointer}
+.sr-item .sr-tk{font-size:11px;font-weight:800;color:var(--green);margin-bottom:4px}
+.sr-item .sr-q{font-size:13.5px;font-weight:600;line-height:1.4}
 
 /* HERO готовность */
 .road-card{background:linear-gradient(160deg,#00b86b,#03704c);border-radius:26px;padding:22px 22px 0;color:#fff;position:relative;overflow:hidden;margin-bottom:16px;box-shadow:0 18px 40px -18px rgba(0,184,107,.5)}
@@ -277,6 +302,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--ink);-webkit-font-smo
 
 <div id="toast"></div>
 <div id="modalRoot"></div>
+<button class="search-fab" id="searchFab" onclick="openSearch()"><svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="#fff" stroke-width="2"/><path d="M21 21l-4-4" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></button>
 
 <script>
 // ====== ЯДРО ПРИЛОЖЕНИЯ Yoʻl ======
@@ -397,7 +423,13 @@ function applyTheme(){
 function toggleTheme(){S.dark=!S.dark;applyTheme();sv();go(S.page);}
 
 // --- Язык ---
-function setLang(l){S.lang=l;sv();if(S.user&&S.dbOK){sbPatch('users','email=eq.'+encodeURIComponent(S.user.email),{lang:l});}go(S.page);}
+function setLang(l){S.lang=l;sv();if(S.user&&S.dbOK){sbPatch('users','email=eq.'+encodeURIComponent(S.user.email),{lang:l});}updateNavLabels();go(S.page);}
+function updateNavLabels(){
+  document.querySelectorAll('[data-t]').forEach(function(el){
+    var key=el.getAttribute('data-t');
+    if(key)el.textContent=t(key);
+  });
+}
 
 // --- Звук ---
 function playSound(type){
@@ -417,6 +449,9 @@ function toast(msg){var el=document.getElementById('toast');el.textContent=msg;e
 function go(page){
   S.page=page;
   document.querySelectorAll('.nav a').forEach(function(a){a.classList.toggle('on',a.getAttribute('data-page')===page);});
+  // кнопка поиска только на главной и билетах
+  var fab=document.getElementById('searchFab');
+  if(fab)fab.style.display=(page==='home'||page==='tickets')?'flex':'none';
   var app=document.getElementById('app');
   app.scrollTop=0;window.scrollTo(0,0);
   if(page==='home')renderHome(app);
@@ -463,6 +498,85 @@ function calcStats(){
   return {total:total,solved:solved,correct:correct,acc:acc,readiness:readiness,fullTickets:fullTickets,totalTickets:62};
 }
 
+// ===== КАРУСЕЛЬ-БАННЕР =====
+var CAROUSEL_IDX=0,CAROUSEL_TIMER=null;
+var BANNERS=[
+  {bg:'linear-gradient(135deg,#00b86b,#03704c)',emoji:'🎓',ru:{h:'Сдай экзамен с первого раза',p:'62 билета · режим как в ГАИ'},uz:{h:'Imtihonni birinchi marta topshiring',p:'62 bilet · GAI uslubida'}},
+  {bg:'linear-gradient(135deg,#7c6cff,#5a4fd0)',emoji:'⚔️',ru:{h:'Зови друзей на дуэль',p:'Кто знает ПДД лучше?'},uz:{h:'Doʻstlarni bellashuv',p:'Kim YHQni yaxshi biladi?'}},
+  {bg:'linear-gradient(135deg,#ff9d0a,#e8500f)',emoji:'⭐',ru:{h:'Yoʻl Premium',p:'Все билеты · без рекламы'},uz:{h:'Yoʻl Premium',p:'Barcha biletlar · reklamasiz'}}
+];
+function renderCarousel(){
+  var html='<div class="carousel"><div class="carousel-track" id="carTrack">';
+  BANNERS.forEach(function(b){
+    var tx=S.lang==='uz'?b.uz:b.ru;
+    html+='<div class="cbanner" style="background:'+b.bg+'"><div class="cb-glow"></div><div class="cb-txt"><h4>'+esc(tx.h)+'</h4><p>'+esc(tx.p)+'</p></div><div class="cb-emoji">'+b.emoji+'</div></div>';
+  });
+  html+='</div><div class="carousel-dots" id="carDots">';
+  BANNERS.forEach(function(b,i){html+='<i class="'+(i===0?'on':'')+'"></i>';});
+  html+='</div></div>';
+  // запустить авто-прокрутку после рендера
+  setTimeout(startCarousel,100);
+  return html;
+}
+function startCarousel(){
+  if(CAROUSEL_TIMER)clearInterval(CAROUSEL_TIMER);
+  CAROUSEL_IDX=0;
+  CAROUSEL_TIMER=setInterval(function(){
+    var track=document.getElementById('carTrack');
+    if(!track){clearInterval(CAROUSEL_TIMER);return;}
+    CAROUSEL_IDX=(CAROUSEL_IDX+1)%BANNERS.length;
+    track.style.transform='translateX(-'+(CAROUSEL_IDX*100)+'%)';
+    var dots=document.querySelectorAll('#carDots i');
+    dots.forEach(function(d,i){d.classList.toggle('on',i===CAROUSEL_IDX);});
+  },3500);
+}
+
+// ===== ПОИСК ВОПРОСОВ (для всех) =====
+function openSearch(){
+  var panel=document.getElementById('searchPanel');
+  if(!panel){
+    panel=document.createElement('div');
+    panel.id='searchPanel';panel.className='search-panel';
+    panel.innerHTML='<div class="search-head"><div class="back" onclick="closeSearch()">←</div><input id="searchInput" placeholder="'+(S.lang==='uz'?'Savol qidirish...':'Поиск вопроса...')+'" oninput="doSearch(this.value)"></div><div class="search-res" id="searchRes"><div style="text-align:center;color:var(--ink3);padding:30px;font-size:13px">'+(S.lang==='uz'?'Yozing — qidiramiz':'Начни вводить — найдём')+'</div></div>';
+    document.body.appendChild(panel);
+  }
+  panel.classList.add('open');
+  setTimeout(function(){var si=document.getElementById('searchInput');if(si)si.focus();},100);
+}
+function closeSearch(){var p=document.getElementById('searchPanel');if(p)p.classList.remove('open');}
+function doSearch(q){
+  var res=document.getElementById('searchRes');
+  q=(q||'').toLowerCase().trim();
+  if(q.length<2){res.innerHTML='<div style="text-align:center;color:var(--ink3);padding:30px;font-size:13px">'+(S.lang==='uz'?'Kamida 2 harf':'Минимум 2 буквы')+'</div>';return;}
+  var found=S.questions.filter(function(qq){
+    var txt=((qq.question_ru||'')+' '+(qq.question_uz||'')+' '+(qq.topic||'')).toLowerCase();
+    return txt.indexOf(q)>=0;
+  }).slice(0,30);
+  if(!found.length){res.innerHTML='<div style="text-align:center;color:var(--ink3);padding:30px;font-size:13px">'+(S.lang==='uz'?'Hech narsa topilmadi':'Ничего не найдено')+'</div>';return;}
+  var html='';
+  found.forEach(function(qq){
+    var qtext=S.lang==='uz'&&qq.question_uz?qq.question_uz:qq.question_ru;
+    html+='<div class="sr-item" onclick="searchOpenQ('+qq.id+')"><div class="sr-tk">Билет '+qq.ticket+' · '+esc(qq.topic||'')+'</div><div class="sr-q">'+esc(qtext)+'</div></div>';
+  });
+  res.innerHTML=html;
+}
+function searchOpenQ(id){
+  var q=S.questions.find(function(x){return x.id===id;});
+  if(!q)return;
+  var opts=(S.lang==='uz'&&q.options_uz?q.options_uz:q.options_ru).split('|');
+  var qtext=S.lang==='uz'&&q.question_uz?q.question_uz:q.question_ru;
+  var expl=S.lang==='uz'&&q.explain_uz?q.explain_uz:q.explain_ru;
+  var html='<div class="search-head"><div class="back" onclick="openSearch()">←</div><div style="font-size:15px;font-weight:800">Билет '+q.ticket+'</div></div>';
+  html+='<div class="qcard">';
+  if(q.image_url)html+='<div class="qpic"><img src="'+esc(q.image_url)+'" alt=""></div>';
+  html+='<div class="qtext">'+esc(qtext)+'</div><div class="ans">';
+  opts.forEach(function(o,i){html+='<div class="a'+(i===q.correct_index?' ok':'')+'"><span class="lk">'+String.fromCharCode(65+i)+'</span> '+esc(o)+'</div>';});
+  html+='</div>';
+  if(expl)html+='<div class="explain"><div class="ai">🤖</div><div><b>'+t('why')+':</b> '+esc(expl)+'</div></div>';
+  html+='</div>';
+  document.getElementById('searchPanel').innerHTML=html;
+}
+
 // ===== ГЛАВНАЯ =====
 function renderHome(app){
   var st=calcStats();
@@ -472,6 +586,8 @@ function renderHome(app){
   html+='<div class="top"><div class="logo"><svg viewBox="0 0 24 24" fill="none"><path d="M4 17l1.8-5.4A2 2 0 017.7 10h8.6a2 2 0 011.9 1.6L20 17M4 17h16M4 17v2.5a1 1 0 001 1h1.5a1 1 0 001-1V17m11 0v2.5a1 1 0 001 1H20a1 1 0 001-1V17" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="7.5" cy="14" r="1.1" fill="#fff"/><circle cx="16.5" cy="14" r="1.1" fill="#fff"/></svg></div><div class="bname">Yoʻl</div>'
     +'<div class="lang"><button class="'+(S.lang==='ru'?'on':'')+'" onclick="setLang(\'ru\')">RU</button><button class="'+(S.lang==='uz'?'on':'')+'" onclick="setLang(\'uz\')">UZ</button></div></div>';
   // готовность
+  // карусель-баннер
+  html+=renderCarousel();
   html+='<div class="road-card"><div class="glow"></div>'
     +'<div class="lbl">'+t('readiness')+'</div>'
     +'<div class="pct">'+st.readiness+'<small>%</small></div>'
@@ -1368,6 +1484,7 @@ async function init(){
   // загрузка данных
   if(S.dbOK){try{await loadAll();}catch(e){}}
   document.getElementById('loading').classList.add('hidden');
+  updateNavLabels();
   go('home');
 }
 window.addEventListener('DOMContentLoaded',init);
