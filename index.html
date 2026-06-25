@@ -60,7 +60,8 @@ body{font-family:var(--f);background:var(--bg);color:var(--ink);-webkit-font-smo
 .carousel-dots i.on{background:#fff;width:18px;border-radius:99px}
 
 /* поиск (плавающая кнопка + панель) */
-.search-fab{position:fixed;bottom:90px;right:18px;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#00b86b,#059862);display:flex;align-items:center;justify-content:center;box-shadow:0 10px 26px -8px rgba(0,184,107,.55);z-index:45;cursor:pointer;border:none}
+.search-fab{position:fixed;bottom:96px;right:16px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#00b86b,#059862);display:flex;align-items:center;justify-content:center;box-shadow:0 12px 30px -6px rgba(0,184,107,.6);z-index:48;cursor:pointer;border:none;transition:transform .15s}
+.search-fab:active{transform:scale(.92)}
 .search-fab svg{width:24px;height:24px}
 .search-panel{position:fixed;inset:0;background:var(--bg);z-index:500;padding:16px 17px;overflow-y:auto;display:none}
 .search-panel.open{display:block}
@@ -83,8 +84,8 @@ body{font-family:var(--f);background:var(--bg);color:var(--ink);-webkit-font-smo
 .road-stat .s span{display:block;font-size:11px;opacity:.82;margin-top:1px}
 .road{height:46px;margin:16px -22px 0;background:rgba(0,0,0,.13);position:relative;display:flex;align-items:center;overflow:hidden}
 .road .lane{position:absolute;top:50%;left:0;right:0;height:3px;transform:translateY(-50%);background:repeating-linear-gradient(90deg,#fff 0 16px,transparent 16px 32px);opacity:.45}
-.road .car{position:absolute;top:50%;transform:translateY(-50%);font-size:24px;filter:drop-shadow(0 4px 6px rgba(0,0,0,.3));animation:bob 1.5s ease-in-out infinite;transition:left 1s cubic-bezier(.4,0,.2,1)}
-@keyframes bob{0%,100%{transform:translateY(-50%)}50%{transform:translateY(-58%)}}
+.road .car{position:absolute;top:50%;font-size:24px;filter:drop-shadow(0 4px 6px rgba(0,0,0,.3));animation:bob 1.5s ease-in-out infinite;transition:left 1s cubic-bezier(.4,0,.2,1)}
+@keyframes bob{0%,100%{transform:translateY(-50%) scaleX(-1)}50%{transform:translateY(-58%) scaleX(-1)}}
 .road .flag{position:absolute;top:50%;right:16px;transform:translateY(-50%);font-size:21px}
 
 /* продолжить */
@@ -462,6 +463,9 @@ function go(page){
   else if(page==='profile')renderProfile(app);
   else if(page==='errors')renderErrors(app);
   else if(page==='admin')renderAdmin(app);
+  else if(page==='signs')renderSigns(app);
+  else if(page==='fines')renderFines(app);
+  else if(page==='rules')renderRules(app);
   else renderHome(app);
 }
 
@@ -491,11 +495,15 @@ function calcStats(){
   // готовность = % решённых с учётом точности
   var readiness=Math.round((solved/total)*100*(acc/100)+(acc*0.0));
   readiness=Math.min(100,Math.round((solved/total*0.6+acc/100*0.4)*100));
-  // билеты пройдено
-  var ticketsDone={};
-  S.questions.forEach(function(q){if(S.progress[q.id]){ticketsDone[q.ticket]=(ticketsDone[q.ticket]||0)+1;}});
-  var fullTickets=Object.keys(ticketsDone).filter(function(t){return ticketsDone[t]>=20;}).length;
-  return {total:total,solved:solved,correct:correct,acc:acc,readiness:readiness,fullTickets:fullTickets,totalTickets:62};
+  // билеты пройдено (динамически по реальным вопросам)
+  var ticketsDone={},ticketTotal={};
+  S.questions.forEach(function(q){
+    ticketTotal[q.ticket]=(ticketTotal[q.ticket]||0)+1;
+    if(S.progress[q.id]){ticketsDone[q.ticket]=(ticketsDone[q.ticket]||0)+1;}
+  });
+  var totalTickets=Object.keys(ticketTotal).length||0;
+  var fullTickets=Object.keys(ticketTotal).filter(function(t){return (ticketsDone[t]||0)>=ticketTotal[t];}).length;
+  return {total:total,solved:solved,correct:correct,acc:acc,readiness:readiness,fullTickets:fullTickets,totalTickets:totalTickets};
 }
 
 // ===== КАРУСЕЛЬ-БАННЕР =====
@@ -599,19 +607,26 @@ function renderHome(app){
   html+='<div class="road-card"><div class="glow"></div>'
     +'<div class="lbl">'+t('readiness')+'</div>'
     +'<div class="pct">'+st.readiness+'<small>%</small></div>'
-    +'<div class="road-stat"><div class="s"><b>'+st.solved+'</b><span>'+t('solved')+'</span></div><div class="s"><b>'+st.acc+'%</b><span>'+t('accuracy')+'</span></div><div class="s"><b>'+st.fullTickets+'/62</b><span>'+t('tickets')+'</span></div></div>'
+    +'<div class="road-stat"><div class="s"><b>'+st.solved+'</b><span>'+t('solved')+'</span></div><div class="s"><b>'+st.acc+'%</b><span>'+t('accuracy')+'</span></div><div class="s"><b>'+st.fullTickets+'/'+(st.totalTickets||0)+'</b><span>'+t('tickets')+'</span></div></div>'
     +'<div class="road"><div class="lane"></div><div class="car" style="left:calc('+Math.max(5,Math.min(80,st.readiness*0.78))+'% )">🚗</div><div class="flag">🏁</div></div></div>';
   // экзамен
   html+='<div class="exam-btn" onclick="startExam(0)"><div class="ic">🎓</div><div class="txt"><h3>'+t('exam')+'</h3><p>'+t('exam_sub')+'</p></div><div class="go">→</div></div>';
   // режимы 2x2
   var errCount=Object.values(S.progress).filter(function(p){return !p.correct;}).length;
   html+='<div class="grid">'
-    +'<div class="g tk" onclick="go(\'tickets\')"><div class="e">📚</div><b>'+t('mode_tickets')+'</b><span>'+t('mode_tickets_sub')+'</span></div>'
+    +'<div class="g tk" onclick="go(\'tickets\')"><div class="e">📚</div><b>'+t('mode_tickets')+'</b><span>'+(st.totalTickets||0)+' '+(S.lang==='uz'?'bilet':'билетов')+'</span></div>'
     +'<div class="g er" onclick="go(\'errors\')"><div class="e">🎯</div><b>'+t('mode_errors')+'</b><span>'+errCount+' '+t('mode_errors_sub')+'</span></div>'
     +'<div class="g du" onclick="duelStart()"><span class="badge">LIVE</span><div class="e">⚔️</div><b>'+t('mode_duel')+'</b><span>'+t('mode_duel_sub')+'</span></div>'
     +'<div class="g vo" onclick="audioStart()"><div class="e">🔊</div><b>'+t('mode_audio')+'</b><span>'+t('mode_audio_sub')+'</span></div>'
     +'</div>';
-  // рейтинг превью (заглушка пока)
+  // справочник (знаки, штрафы, правила) — догнать конкурентов
+  var uz=S.lang==='uz';
+  html+='<div class="sec">'+(uz?'Maʼlumotnoma':'Справочник')+'</div>';
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:11px;margin-bottom:18px">'
+    +'<div class="r3" onclick="go(\'signs\')" style="background:var(--card);border-radius:18px;padding:15px 8px;text-align:center;cursor:pointer;box-shadow:0 8px 22px -16px rgba(15,31,24,.2)"><span style="font-size:26px;display:block;margin-bottom:6px">🚸</span><b style="font-size:12px;font-weight:700">'+(uz?'Belgilar':'Знаки')+'</b></div>'
+    +'<div class="r3" onclick="go(\'fines\')" style="background:var(--card);border-radius:18px;padding:15px 8px;text-align:center;cursor:pointer;box-shadow:0 8px 22px -16px rgba(15,31,24,.2)"><span style="font-size:26px;display:block;margin-bottom:6px">⚖️</span><b style="font-size:12px;font-weight:700">'+(uz?'Jarimalar':'Штрафы')+'</b></div>'
+    +'<div class="r3" onclick="go(\'rules\')" style="background:var(--card);border-radius:18px;padding:15px 8px;text-align:center;cursor:pointer;box-shadow:0 8px 22px -16px rgba(15,31,24,.2)"><span style="font-size:26px;display:block;margin-bottom:6px">📖</span><b style="font-size:12px;font-weight:700">'+(uz?'Qoidalar':'Правила')+'</b></div>'
+    +'</div>';
   html+='<div class="sec">'+t('rating_week')+' <span class="more" onclick="go(\'rating\')">'+t('all')+' →</span></div>';
   html+='<div class="rank-prev" id="homeRank"><div style="padding:20px;text-align:center;color:var(--ink3);font-size:13px">Загрузка...</div></div>';
   app.innerHTML=html;
@@ -633,28 +648,71 @@ function loadHomeRank(){
 
 // ===== ЭКЗАМЕН (старт) =====
 function renderExamStart(app){
+  var uz=S.lang==='uz';
   var html='<div class="h1">'+t('exam')+'</div>';
-  html+='<div class="qcard" style="text-align:center;padding:30px 20px">'
-    +'<div style="font-size:54px;margin-bottom:14px">🎓</div>'
-    +'<div style="font-size:18px;font-weight:800;margin-bottom:8px">'+t('exam')+' — '+(S.lang==='uz'?'GAI uslubida':'как в ГАИ')+'</div>'
-    +'<div style="font-size:14px;color:var(--ink2);line-height:1.6;margin-bottom:22px">20 '+t('question').toLowerCase()+'ов · 25 '+(S.lang==='uz'?'daqiqa':'минут')+'<br>'+(S.lang==='uz'?'2 xato — yiqilish':'2 ошибки — провал')+'</div>'
-    +'<button class="btn-main" onclick="startExam(0)">'+t('start_exam')+' →</button>'
+  // главный экзамен ГАИ
+  html+='<div class="qcard" style="text-align:center;padding:28px 20px;margin-bottom:14px">'
+    +'<div style="font-size:50px;margin-bottom:12px">🎓</div>'
+    +'<div style="font-size:18px;font-weight:800;margin-bottom:6px">'+(uz?'GAI imtihoni':'Экзамен ГАИ')+'</div>'
+    +'<div style="font-size:13.5px;color:var(--ink2);line-height:1.6;margin-bottom:20px">20 '+(uz?'savol · 25 daqiqa · 2 xato yiqitadi':'вопросов · 25 минут · 2 ошибки = провал')+'</div>'
+    +'<button class="btn-main" onclick="startExam(0)">'+(uz?'Boshlash':'Начать')+' →</button>'
     +'</div>';
+  // дополнительные режимы
+  html+='<div class="sec">'+(uz?'Boshqa rejimlar':'Другие режимы')+'</div>';
+  html+='<div class="exam-btn" onclick="startMarathon()"><div class="ic" style="background:linear-gradient(135deg,#7c6cff,#5a4fd0)">🏃</div><div class="txt"><h3>'+(uz?'Marafon':'Марафон')+'</h3><p>'+(uz?'Barcha savollar ketma-ket':'Все вопросы подряд, без лимита')+'</p></div><div class="go">→</div></div>';
+  html+='<div class="exam-btn" onclick="go(\'tickets\')"><div class="ic" style="background:linear-gradient(135deg,#00b86b,#059862)">📚</div><div class="txt"><h3>'+(uz?'Bilet boʻyicha':'По билету')+'</h3><p>'+(uz?'Aniq biletni tanlang':'Выбери конкретный билет')+'</p></div><div class="go">→</div></div>';
+  html+='<div class="exam-btn" onclick="startErrors()"><div class="ic" style="background:linear-gradient(135deg,#ff9d0a,#e8500f)">🎯</div><div class="txt"><h3>'+(uz?'Xatolar ustida':'Работа над ошибками')+'</h3><p>'+(uz?'Faqat xato qilgan savollar':'Только проваленные вопросы')+'</p></div><div class="go">→</div></div>';
+  // история экзаменов
+  html+='<div class="sec" style="margin-top:18px">'+(uz?'Tarix':'История экзаменов')+'</div>';
+  html+='<div id="examHistory"><div style="padding:16px;text-align:center;color:var(--ink3);font-size:13px">Загрузка...</div></div>';
   app.innerHTML=html;
+  loadExamHistory();
+}
+function loadExamHistory(){
+  var el=document.getElementById('examHistory');
+  if(!el)return;
+  if(!S.user||!S.dbOK){el.innerHTML='<p style="color:var(--ink3);font-size:13px;padding:10px">Войди чтобы видеть историю</p>';return;}
+  sbGet('exam_results','user_email=eq.'+encodeURIComponent(S.user.email)+'&select=*&order=taken_at.desc&limit=10').then(function(rows){
+    rows=rows||[];
+    if(!rows.length){el.innerHTML='<p style="color:var(--ink3);font-size:13px;padding:10px">Ещё не сдавал экзамены. Начни первый!</p>';return;}
+    var html='';
+    rows.forEach(function(e){
+      var d=new Date(e.taken_at);var dt=('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2);
+      var mm=Math.floor((e.time_seconds||0)/60),ss=('0'+((e.time_seconds||0)%60)).slice(-2);
+      html+='<div class="weak" style="align-items:center"><span class="we">'+(e.passed?'✅':'❌')+'</span><div class="winfo"><div class="wn" style="font-size:13px">'+(e.passed?'Сдан':'Не сдан')+' · '+e.correct_count+'/'+e.total+'</div><div style="font-size:11px;color:var(--ink3)">'+dt+' · '+mm+':'+ss+(e.ticket?' · билет '+e.ticket:'')+'</div></div></div>';
+    });
+    el.innerHTML=html;
+  });
+}
+function startMarathon(){
+  if(!S.questions.length){toast('Вопросы не загружены');return;}
+  var pool=shuffle(S.questions.slice());
+  QUIZ={questions:pool,idx:0,answers:[],mode:'marathon',ticket:0,startTime:Date.now(),maxErrors:9999};
+  renderQuestion();
 }
 
 // ===== БИЛЕТЫ =====
 function renderTickets(app){
   var html='<div class="h1">'+t('mode_tickets')+'</div>';
   // прогресс по билетам
-  var ticketsDone={};
-  S.questions.forEach(function(q){if(S.progress[q.id]&&S.progress[q.id].correct){ticketsDone[q.ticket]=(ticketsDone[q.ticket]||0)+1;}});
-  html+='<div class="tickets">';
-  for(var i=1;i<=62;i++){
-    var done=ticketsDone[i]||0;
-    var isDone=done>=20;
-    html+='<div class="tk-cell'+(isDone?' done':'')+'" onclick="startExam('+i+')"><b>'+i+'</b><span>'+done+'/20</span></div>';
+  var ticketsDone={},ticketQCount={};
+  S.questions.forEach(function(q){
+    ticketQCount[q.ticket]=(ticketQCount[q.ticket]||0)+1;
+    if(S.progress[q.id]&&S.progress[q.id].correct){ticketsDone[q.ticket]=(ticketsDone[q.ticket]||0)+1;}
+  });
+  // список билетов которые РЕАЛЬНО есть в базе (динамически)
+  var ticketNums=Object.keys(ticketQCount).map(Number).sort(function(a,b){return a-b;});
+  if(!ticketNums.length){
+    html+='<div class="qcard" style="text-align:center;padding:40px 20px;color:var(--ink3)"><div style="font-size:40px;margin-bottom:12px">📭</div><div style="font-size:15px;font-weight:600">Билетов пока нет</div><div style="font-size:13px;margin-top:6px">Вопросы ещё не добавлены</div></div>';
+    app.innerHTML=html;return;
   }
+  html+='<div class="tickets">';
+  ticketNums.forEach(function(i){
+    var done=ticketsDone[i]||0;
+    var total=ticketQCount[i]||20;
+    var isDone=done>=total&&total>0;
+    html+='<div class="tk-cell'+(isDone?' done':'')+'" onclick="startExam('+i+')"><b>'+i+'</b><span>'+done+'/'+total+'</span></div>';
+  });
   html+='</div>';
   app.innerHTML=html;
 }
@@ -1322,6 +1380,116 @@ function duelCancel(){
   DUEL=null;go('home');
 }
 
+// ===== СПРАВОЧНИК: ЗНАКИ, ШТРАФЫ, ПРАВИЛА =====
+function renderSigns(app){
+  var uz=S.lang==='uz';
+  var html='<div class="qhead"><div class="back" onclick="go(\'home\')">←</div><div class="qtitle">🚸 '+(uz?'Yoʻl belgilari':'Дорожные знаки')+'<span>'+(uz?'Belgilar kutubxonasi':'Библиотека знаков')+'</span></div></div>';
+  html+='<div id="signsBody"><div style="padding:30px;text-align:center;color:var(--ink3)">Загрузка...</div></div>';
+  app.innerHTML=html;
+  loadSigns();
+}
+function loadSigns(){
+  var el=document.getElementById('signsBody');if(!el)return;
+  if(!S.dbOK){el.innerHTML='<p style="color:var(--ink3);padding:16px;text-align:center">Нет соединения</p>';return;}
+  sbGet('road_signs','select=*&order=sort_order.asc&limit=500').then(function(rows){
+    rows=rows||[];
+    if(!rows.length){el.innerHTML='<div style="padding:40px 20px;text-align:center;color:var(--ink3)"><div style="font-size:40px;margin-bottom:12px">🚸</div><div style="font-size:14px">Знаки ещё не добавлены</div><div style="font-size:12px;margin-top:4px">Админ добавит их в справочник</div></div>';return;}
+    var uz=S.lang==='uz';
+    // группировка по категориям
+    var cats={};
+    rows.forEach(function(s){var c=s.category||'Прочее';if(!cats[c])cats[c]=[];cats[c].push(s);});
+    var html='';
+    Object.keys(cats).forEach(function(cat){
+      html+='<div class="sec">'+esc(cat)+'</div>';
+      cats[cat].forEach(function(s){
+        var nm=uz&&s.name_uz?s.name_uz:s.name_ru;
+        var ds=uz&&s.desc_uz?s.desc_uz:s.desc_ru;
+        html+='<div class="weak" style="align-items:flex-start;cursor:pointer" onclick="signDetail('+s.id+')">';
+        if(s.image_url)html+='<img src="'+esc(s.image_url)+'" style="width:48px;height:48px;border-radius:10px;object-fit:contain;background:var(--bg);flex-shrink:0">';
+        else html+='<span class="we" style="font-size:28px">🚸</span>';
+        html+='<div class="winfo"><div class="wn" style="font-size:13.5px">'+esc(nm)+'</div><div style="font-size:11.5px;color:var(--ink3);margin-top:2px;line-height:1.4">'+esc(ds)+'</div></div></div>';
+      });
+    });
+    el.innerHTML=html;
+    window._signs=rows;
+  });
+}
+function signDetail(id){
+  var s=(window._signs||[]).find(function(x){return x.id===id;});
+  if(!s)return;
+  var uz=S.lang==='uz';
+  var nm=uz&&s.name_uz?s.name_uz:s.name_ru;
+  var ds=uz&&s.desc_uz?s.desc_uz:s.desc_ru;
+  var html='<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal">';
+  if(s.image_url)html+='<div style="text-align:center;margin-bottom:16px"><img src="'+esc(s.image_url)+'" style="width:120px;height:120px;object-fit:contain;background:var(--bg);border-radius:16px;padding:10px"></div>';
+  html+='<h2>'+esc(nm)+'</h2><p>'+esc(ds)+'</p>';
+  html+='<button class="btn-main" onclick="closeModal()">'+(uz?'Tushunarli':'Понятно')+'</button></div></div>';
+  document.getElementById('modalRoot').innerHTML=html;
+}
+
+function renderFines(app){
+  var uz=S.lang==='uz';
+  var html='<div class="qhead"><div class="back" onclick="go(\'home\')">←</div><div class="qtitle">⚖️ '+(uz?'Jarimalar':'Штрафы')+'<span>'+(uz?'Qoidabuzarliklar va jazolar':'Нарушения и наказания')+'</span></div></div>';
+  html+='<div id="finesBody"><div style="padding:30px;text-align:center;color:var(--ink3)">Загрузка...</div></div>';
+  app.innerHTML=html;
+  loadFines();
+}
+function loadFines(){
+  var el=document.getElementById('finesBody');if(!el)return;
+  if(!S.dbOK){el.innerHTML='<p style="color:var(--ink3);padding:16px;text-align:center">Нет соединения</p>';return;}
+  sbGet('fines','select=*&order=sort_order.asc&limit=500').then(function(rows){
+    rows=rows||[];
+    if(!rows.length){el.innerHTML='<div style="padding:40px 20px;text-align:center;color:var(--ink3)"><div style="font-size:40px;margin-bottom:12px">⚖️</div><div style="font-size:14px">Штрафы ещё не добавлены</div></div>';return;}
+    var uz=S.lang==='uz';
+    var html='';
+    rows.forEach(function(f){
+      var ti=uz&&f.title_uz?f.title_uz:f.title_ru;
+      var ds=uz&&f.desc_uz?f.desc_uz:f.desc_ru;
+      var am=uz&&f.amount_uz?f.amount_uz:f.amount_ru;
+      html+='<div class="qcard" style="padding:15px;margin-bottom:10px"><div style="display:flex;align-items:flex-start;gap:12px"><span style="font-size:24px">⚖️</span><div style="flex:1"><div style="font-size:14px;font-weight:800;margin-bottom:3px">'+esc(ti)+'</div><div style="font-size:12.5px;color:var(--ink2);line-height:1.5">'+esc(ds)+'</div></div></div>';
+      if(am)html+='<div style="margin-top:10px;display:inline-block;background:var(--red-s);color:var(--red);font-size:13px;font-weight:800;padding:6px 13px;border-radius:10px">'+esc(am)+'</div>';
+      html+='</div>';
+    });
+    el.innerHTML=html;
+  });
+}
+
+function renderRules(app){
+  var uz=S.lang==='uz';
+  var html='<div class="qhead"><div class="back" onclick="go(\'home\')">←</div><div class="qtitle">📖 '+(uz?'YHQ qoidalari':'Правила ПДД')+'<span>'+(uz?'Oʻqish uchun':'Для изучения')+'</span></div></div>';
+  html+='<div id="rulesBody"><div style="padding:30px;text-align:center;color:var(--ink3)">Загрузка...</div></div>';
+  app.innerHTML=html;
+  loadRules();
+}
+function loadRules(){
+  var el=document.getElementById('rulesBody');if(!el)return;
+  if(!S.dbOK){el.innerHTML='<p style="color:var(--ink3);padding:16px;text-align:center">Нет соединения</p>';return;}
+  sbGet('rules','select=*&order=chapter.asc,sort_order.asc&limit=500').then(function(rows){
+    rows=rows||[];
+    if(!rows.length){el.innerHTML='<div style="padding:40px 20px;text-align:center;color:var(--ink3)"><div style="font-size:40px;margin-bottom:12px">📖</div><div style="font-size:14px">Правила ещё не добавлены</div></div>';return;}
+    var uz=S.lang==='uz';
+    var html='';
+    rows.forEach(function(r){
+      var ti=uz&&r.title_uz?r.title_uz:r.title_ru;
+      var bd=uz&&r.body_uz?r.body_uz:r.body_ru;
+      html+='<div class="qcard" style="padding:16px;margin-bottom:10px;cursor:pointer" onclick="ruleDetail('+r.id+')"><div style="display:flex;align-items:center;gap:12px"><div style="width:36px;height:36px;border-radius:11px;background:var(--mint);color:var(--green);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;flex-shrink:0">'+(r.chapter||'•')+'</div><div style="flex:1"><div style="font-size:14px;font-weight:800">'+esc(ti)+'</div></div><div style="color:var(--ink3);font-size:18px">›</div></div></div>';
+    });
+    el.innerHTML=html;
+    window._rules=rows;
+  });
+}
+function ruleDetail(id){
+  var r=(window._rules||[]).find(function(x){return x.id===id;});
+  if(!r)return;
+  var uz=S.lang==='uz';
+  var ti=uz&&r.title_uz?r.title_uz:r.title_ru;
+  var bd=uz&&r.body_uz?r.body_uz:r.body_ru;
+  var app=document.getElementById('app');
+  var html='<div class="qhead"><div class="back" onclick="go(\'rules\')">←</div><div class="qtitle">'+(r.chapter?'Глава '+r.chapter:'Правило')+'</div></div>';
+  html+='<div class="qcard" style="padding:20px"><h2 style="font-size:18px;font-weight:800;margin-bottom:12px">'+esc(ti)+'</h2><div style="font-size:14px;line-height:1.65;color:var(--ink2);white-space:pre-wrap">'+esc(bd)+'</div></div>';
+  app.innerHTML=html;
+}
+
 // ===== АДМИНКА =====
 function adminLogin(){
   var html='<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal">'
@@ -1349,7 +1517,7 @@ function doAdminLogin(){
 var ADMIN_TAB='dash';
 function renderAdmin(app){
   if(!S.user||S.user.role!=='admin'){app.innerHTML='<div class="h1">Доступ закрыт</div><button class="btn-ghost" onclick="go(\'profile\')">Назад</button>';return;}
-  var tabs=[['dash','📊'],['questions','📝'],['banners','🖼️'],['users','👥'],['analytics','📈'],['broadcast','📢'],['settings','⚙️']];
+  var tabs=[['dash','📊'],['questions','📝'],['content','📚'],['banners','🖼️'],['users','👥'],['analytics','📈'],['broadcast','📢'],['settings','⚙️']];
   var html='<div class="qhead"><div class="back" onclick="go(\'profile\')">←</div><div class="qtitle">🛡️ Админка<span>Управление Yoʻl</span></div></div>';
   html+='<div style="display:flex;gap:7px;overflow-x:auto;padding-bottom:8px;margin-bottom:14px;-ms-overflow-style:none;scrollbar-width:none">';
   tabs.forEach(function(tb){
@@ -1369,6 +1537,7 @@ function renderAdminBody(){
   else if(ADMIN_TAB==='users')renderAdminUsers(el);
   else if(ADMIN_TAB==='analytics')renderAdminAnalytics(el);
   else if(ADMIN_TAB==='broadcast')renderAdminBroadcast(el);
+  else if(ADMIN_TAB==='content')renderAdminContent(el);
   else if(ADMIN_TAB==='settings')renderAdminSettings(el);
 }
 
@@ -1571,6 +1740,111 @@ function sendBroadcast(){
   sbPost('notifications_queue',{title:title,body:body,kind:'broadcast',sent:false}).then(function(r){
     if(r){toast('✅ Рассылка поставлена в очередь');document.getElementById('bcTitle').value='';document.getElementById('bcBody').value='';}
     else showErr('bcErr','Ошибка: '+(window._lastSbErr||'нужен бот'));
+  });
+}
+
+// ===== АДМИН: КОНТЕНТ (знаки, штрафы, правила) =====
+var CTAB='signs';
+function renderAdminContent(el){
+  var html='<div class="tabs"><button class="'+(CTAB==='signs'?'on':'')+'" onclick="setCTab(\'signs\')">🚸 Знаки</button><button class="'+(CTAB==='fines'?'on':'')+'" onclick="setCTab(\'fines\')">⚖️ Штрафы</button><button class="'+(CTAB==='rules'?'on':'')+'" onclick="setCTab(\'rules\')">📖 Правила</button></div><div id="cTabBody"></div>';
+  el.innerHTML=html;
+  renderCTab();
+}
+function setCTab(t){CTAB=t;renderCTab();}
+function renderCTab(){
+  var el=document.getElementById('cTabBody');if(!el)return;
+  if(CTAB==='signs')renderCSigns(el);
+  else if(CTAB==='fines')renderCFines(el);
+  else renderCRules(el);
+}
+// Знаки
+function renderCSigns(el){
+  var html='<div class="qcard" style="padding:16px;margin-bottom:12px">'
+    +'<div class="field"><label>Категория</label><input id="csCat" placeholder="Запрещающие"></div>'
+    +'<div class="field"><label>Картинка (ссылка)</label><input id="csImg" placeholder="https://..."></div>'
+    +'<div class="field"><label>Название (рус)</label><input id="csNru" placeholder="Въезд запрещён"></div>'
+    +'<div class="field"><label>Название (узб)</label><input id="csNuz" placeholder="Kirish taqiqlangan"></div>'
+    +'<div class="field"><label>Описание (рус)</label><input id="csDru" placeholder="Запрещает въезд..."></div>'
+    +'<div class="field"><label>Описание (узб)</label><input id="csDuz" placeholder="Kirishni taqiqlaydi..."></div>'
+    +'<button class="btn-main" onclick="saveSign()">💾 Добавить знак</button></div>'
+    +'<div id="csList"></div>';
+  el.innerHTML=html;
+  loadCSignsList();
+}
+function saveSign(){
+  var rec={category:val('csCat'),image_url:val('csImg'),name_ru:val('csNru'),name_uz:val('csNuz'),desc_ru:val('csDru'),desc_uz:val('csDuz'),sort_order:Date.now()%100000};
+  if(!rec.name_ru){toast('Введите название');return;}
+  sbPost('road_signs',rec).then(function(r){if(r){toast('✅ Знак добавлен');renderCSigns(document.getElementById('cTabBody'));}else toast('Ошибка');});
+}
+function loadCSignsList(){
+  sbGet('road_signs','select=id,name_ru,category&order=sort_order.asc&limit=300').then(function(rows){
+    var el=document.getElementById('csList');if(!el)return;
+    rows=rows||[];
+    var html='<div style="font-size:13px;color:var(--ink2);margin:8px 0">Всего знаков: '+rows.length+'</div>';
+    rows.forEach(function(s){html+='<div class="weak" style="align-items:center"><span class="we">🚸</span><div class="winfo"><div class="wn" style="font-size:13px">'+esc(s.name_ru)+'</div><div style="font-size:11px;color:var(--ink3)">'+esc(s.category||'')+'</div></div><span onclick="delContent(\'road_signs\','+s.id+',\'csList\')" style="color:var(--red);cursor:pointer;font-size:17px">🗑</span></div>';});
+    el.innerHTML=html;
+  });
+}
+// Штрафы
+function renderCFines(el){
+  var html='<div class="qcard" style="padding:16px;margin-bottom:12px">'
+    +'<div class="field"><label>Нарушение (рус)</label><input id="cfTru" placeholder="Превышение скорости"></div>'
+    +'<div class="field"><label>Нарушение (узб)</label><input id="cfTuz" placeholder="Tezlikni oshirish"></div>'
+    +'<div class="field"><label>Описание (рус)</label><input id="cfDru" placeholder="Превышение на 20-40 км/ч"></div>'
+    +'<div class="field"><label>Описание (узб)</label><input id="cfDuz" placeholder="20-40 km/s oshirish"></div>'
+    +'<div class="field"><label>Сумма (рус)</label><input id="cfAru" placeholder="1 БРВ"></div>'
+    +'<div class="field"><label>Сумма (узб)</label><input id="cfAuz" placeholder="1 BHM"></div>'
+    +'<button class="btn-main" onclick="saveFine()">💾 Добавить штраф</button></div>'
+    +'<div id="cfList"></div>';
+  el.innerHTML=html;
+  loadCFinesList();
+}
+function saveFine(){
+  var rec={title_ru:val('cfTru'),title_uz:val('cfTuz'),desc_ru:val('cfDru'),desc_uz:val('cfDuz'),amount_ru:val('cfAru'),amount_uz:val('cfAuz'),sort_order:Date.now()%100000};
+  if(!rec.title_ru){toast('Введите нарушение');return;}
+  sbPost('fines',rec).then(function(r){if(r){toast('✅ Штраф добавлен');renderCFines(document.getElementById('cTabBody'));}else toast('Ошибка');});
+}
+function loadCFinesList(){
+  sbGet('fines','select=id,title_ru,amount_ru&order=sort_order.asc&limit=300').then(function(rows){
+    var el=document.getElementById('cfList');if(!el)return;
+    rows=rows||[];
+    var html='<div style="font-size:13px;color:var(--ink2);margin:8px 0">Всего штрафов: '+rows.length+'</div>';
+    rows.forEach(function(f){html+='<div class="weak" style="align-items:center"><span class="we">⚖️</span><div class="winfo"><div class="wn" style="font-size:13px">'+esc(f.title_ru)+'</div><div style="font-size:11px;color:var(--red)">'+esc(f.amount_ru||'')+'</div></div><span onclick="delContent(\'fines\','+f.id+',\'cfList\')" style="color:var(--red);cursor:pointer;font-size:17px">🗑</span></div>';});
+    el.innerHTML=html;
+  });
+}
+// Правила
+function renderCRules(el){
+  var html='<div class="qcard" style="padding:16px;margin-bottom:12px">'
+    +'<div class="field"><label>Номер главы</label><input id="crCh" type="number" placeholder="1"></div>'
+    +'<div class="field"><label>Заголовок (рус)</label><input id="crTru" placeholder="Общие положения"></div>'
+    +'<div class="field"><label>Заголовок (узб)</label><input id="crTuz" placeholder="Umumiy qoidalar"></div>'
+    +'<div class="field"><label>Текст (рус)</label><textarea id="crBru" style="width:100%;min-height:100px;padding:12px;border:1.5px solid var(--line);border-radius:12px;font-family:var(--f);font-size:14px;background:var(--bg);color:var(--ink)" placeholder="Текст правила..."></textarea></div>'
+    +'<div class="field"><label>Текст (узб)</label><textarea id="crBuz" style="width:100%;min-height:100px;padding:12px;border:1.5px solid var(--line);border-radius:12px;font-family:var(--f);font-size:14px;background:var(--bg);color:var(--ink)" placeholder="Qoida matni..."></textarea></div>'
+    +'<button class="btn-main" onclick="saveRule()">💾 Добавить правило</button></div>'
+    +'<div id="crList"></div>';
+  el.innerHTML=html;
+  loadCRulesList();
+}
+function saveRule(){
+  var rec={chapter:parseInt(val('crCh'))||0,title_ru:val('crTru'),title_uz:val('crTuz'),body_ru:val('crBru'),body_uz:val('crBuz'),sort_order:Date.now()%100000};
+  if(!rec.title_ru){toast('Введите заголовок');return;}
+  sbPost('rules',rec).then(function(r){if(r){toast('✅ Правило добавлено');renderCRules(document.getElementById('cTabBody'));}else toast('Ошибка');});
+}
+function loadCRulesList(){
+  sbGet('rules','select=id,title_ru,chapter&order=chapter.asc&limit=300').then(function(rows){
+    var el=document.getElementById('crList');if(!el)return;
+    rows=rows||[];
+    var html='<div style="font-size:13px;color:var(--ink2);margin:8px 0">Всего правил: '+rows.length+'</div>';
+    rows.forEach(function(r){html+='<div class="weak" style="align-items:center"><span class="we">📖</span><div class="winfo"><div class="wn" style="font-size:13px">'+(r.chapter?'Гл.'+r.chapter+' · ':'')+esc(r.title_ru)+'</div></div><span onclick="delContent(\'rules\','+r.id+',\'crList\')" style="color:var(--red);cursor:pointer;font-size:17px">🗑</span></div>';});
+    el.innerHTML=html;
+  });
+}
+function delContent(table,id,listId){
+  if(!confirm('Удалить?'))return;
+  fetch(SB_URL+'/rest/v1/'+table+'?id=eq.'+id,{method:'DELETE',headers:SBH}).then(function(){
+    toast('Удалено');
+    if(listId==='csList')loadCSignsList();else if(listId==='cfList')loadCFinesList();else loadCRulesList();
   });
 }
 
